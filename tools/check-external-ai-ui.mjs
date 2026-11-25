@@ -452,8 +452,19 @@ try {
       close() { this.open = false; this.emit("close"); }
     }
     window.Peer = class extends Events {
+      constructor() {
+        super();
+        this.open = false;
+        window.roomPeer = this;
+        if (window.roomPeerStalls) return;
+        queueMicrotask(() => {
+          if (this.destroyed) return;
+          this.open = true;
+          this.emit("open", "test-peer-id");
+        });
+      }
       connect() { return window.roomChannel = new Events(); }
-      destroy() { this.destroyed = true; }
+      destroy() { this.destroyed = true; this.close(); }
     };
     quoridor.setMode("room"); document.querySelector("#joinCode").value = "ABCD"; document.querySelector("#btnJoin").click();
   });
@@ -484,7 +495,25 @@ try {
   await page.run(() => document.querySelector("#btnCreate").click());
   await page.wait(() => document.querySelector("#status").textContent === "Waiting for an opponent");
   assert.deepEqual(await roomRows(), ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
-  console.log("PASS: room guest plays from the bottom; pawn/wall clicks keep canonical network actions; host orientation and toggling work");
+  console.log("PASS: room creation and joining wait for signalling; room moves and orientation work");
+
+  await page.run(() => {
+    window.roomPeerStalls = true;
+    window.normalRoomTestTimeout = window.setTimeout;
+    window.setTimeout = (callback, delay, ...args) => normalRoomTestTimeout(callback, delay === 12000 ? 30 : delay, ...args);
+    document.querySelector("#btnCreate").click();
+  });
+  await page.wait(() => document.querySelector("#status").textContent === "Could not create a room");
+  assert.equal(await page.run(() => document.querySelector("#roomMsg").textContent), "Room server did not respond");
+  assert.deepEqual(await page.run(() => ({ destroyed: roomPeer.destroyed, listeners: Object.values(roomPeer.events).flat().length })),
+    { destroyed: true, listeners: 0 });
+  await page.run(() => {
+    window.setTimeout = normalRoomTestTimeout;
+    window.roomPeerStalls = false;
+    document.querySelector("#btnCreate").click();
+  });
+  await page.wait(() => document.querySelector("#status").textContent === "Waiting for an opponent");
+  console.log("PASS: stalled room creation times out, releases signalling listeners, and can be retried");
 
   await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await page.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
