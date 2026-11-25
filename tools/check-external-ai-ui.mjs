@@ -522,6 +522,9 @@ try {
     const dialog = get("resultDialog");
     return {
       open: dialog.open, outcome: dialog.dataset.outcome, title: get("resultTitle").textContent,
+      description: get("resultDescription").textContent,
+      rematchNotice: get("roomRematch").hidden ? "" : get("roomRematch").textContent,
+      restartAction: get("btnNew").textContent,
       players: get("resultMatchup").textContent, status: get("status").textContent, winner: get("resultWinner").textContent,
       moves: Number(get("resultMoves").textContent), walls: Number(get("resultWalls").textContent),
       newGame: get("btnResultNew").textContent, canRestart: !get("btnResultNew").disabled,
@@ -543,8 +546,16 @@ try {
   assert.equal(hostWin.open, true);
   assert.equal(hostWin.canUndo, false);
   assert.equal(hostWin.canReview, false);
+  await page.run(() => hostResultChannel.emit("data", { t: "askRestart" }));
+  const hostRequest = await result();
+  assert.equal(hostRequest.open, true);
+  assert.equal(hostRequest.newGame, "Accept rematch");
+  assert.match(hostRequest.description, /Your opponent requested a rematch/);
+  await page.run(() => document.querySelector("#btnResultBoard").click());
+  assert.equal((await result()).restartAction, "Accept rematch");
+  assert.match((await result()).rematchNotice, /Your opponent requested a rematch/);
   await page.run(() => {
-    document.querySelector("#btnResultNew").click();
+    document.querySelector("#btnNew").click();
     if (hostResultChannel.sent.at(-1)?.moves?.length !== 0) throw Error("New room game was not synchronized");
     document.querySelector("#joinCode").value = "ABCD";
     document.querySelector("#btnJoin").click();
@@ -554,18 +565,36 @@ try {
   const guestLoss = await result();
   assert.equal(guestLoss.outcome, "defeat");
   assert.equal(guestLoss.newGame, "Request rematch");
+  await page.run(() => {
+    const button = document.querySelector("#btnResultNew");
+    button.click();
+    button.click();
+    if (roomChannel.sent.filter((message) => message.t === "askRestart").length !== 1) throw Error("Guest should send exactly one rematch request");
+  });
+  const waiting = await result();
+  assert.equal(waiting.open, true);
+  assert.equal(waiting.newGame, "Waiting for host…");
+  assert.equal(waiting.canRestart, false);
+  assert.match(waiting.description, /Rematch requested\. Waiting for the host/);
   await page.run((line) => {
-    document.querySelector("#btnResultNew").click();
-    if (roomChannel.sent.at(-1)?.t !== "askRestart") throw Error("Guest rematch was not requested");
+    document.querySelector("#btnResultBoard").click();
     roomChannel.emit("data", { t: "sync", moves: line });
   }, redWin);
   assert.equal((await result()).open, false, "same result should not reopen on resync");
+  assert.match((await result()).rematchNotice, /Rematch requested/);
+  await page.run(() => roomChannel.emit("data", { t: "sync", moves: [] }));
+  assert.equal(await ply(), 0, "host acceptance starts an empty game");
+  assert.equal((await result()).rematchNotice, "");
+  assert.equal((await result()).restartAction, "Request rematch");
+  await page.run((line) => roomChannel.emit("data", { t: "sync", moves: line }), redWin);
+  await page.run(() => document.querySelector("#btnResultBoard").click());
   await page.run(() => roomChannel.close());
   const disconnected = await result();
   assert.equal(disconnected.status, "You lost this round");
   assert.equal(disconnected.canRestart, false);
   assert.equal(disconnected.viewResult, true);
-  console.log("PASS: Room results use the player's seat, synchronize rematches, and survive resync and disconnection");
+  assert.equal(disconnected.rematchNotice, "");
+  console.log("PASS: Room rematch requests are visible in the result and board, wait for host acceptance, then synchronize the new game");
 
   const finishLine = (line) => page.run((moves) => {
     for (const a of moves) if (!quoridor.move(a)) throw Error("Invalid test move " + a);

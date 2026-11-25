@@ -52,6 +52,7 @@ const ui = {
   roomPanel: $("roomPanel"),
   roomCode: $("roomCode"),
   roomMsg: $("roomMsg"),
+  roomRematch: $("roomRematch"),
   joinCode: $("joinCode"),
   btnCreate: $("btnCreate"),
   btnJoin: $("btnJoin"),
@@ -338,6 +339,7 @@ let cancelAlphaSearch = null;
 
 let peer = null, conn = null, roomCode = null, roomRole = null, roomReady = false;
 let mySide = 0;
+let roomRematchPending = false;
 
 function playerName(side) {
   if (state?.terminal && mode !== "replay" && finishedPlayers) return finishedPlayers[side].name;
@@ -634,13 +636,13 @@ function updateResult() {
   ui.resultLabel.textContent = label;
   ui.resultEyebrow.textContent = label;
   ui.resultTitle.textContent = title;
-  ui.resultDescription.textContent = description;
+  const rematch = roomRematchMessage();
+  const details = rematch ? `${description} ${rematch}` : description;
+  if (ui.resultDescription.textContent !== details) ui.resultDescription.textContent = details;
   ui.resultMatchup.textContent = `${playerName(0)} vs ${playerName(1)}`;
   ui.resultMoves.textContent = state.ply;
   ui.resultWalls.textContent = 20 - state.walls[0] - state.walls[1];
   ui.resultWinner.textContent = colour;
-  ui.btnResultNew.textContent = mode === "room" && roomRole === "guest" ? "Request rematch" : "Play again";
-  ui.btnResultNew.disabled = mode === "room" && !roomReady;
   ui.btnResultReview.hidden = mode === "room";
   ui.btnResultUndo.hidden = undoIndex() < 0;
   if (liveResult) status(title, `${description} ${state.ply} moves played.`);
@@ -742,8 +744,7 @@ function updateButtons() {
   ui.btnFlip.hidden = mode !== "ai" && mode !== "ai_ai";
   ui.btnFlip.disabled = mode === "ai" && state.terminal;
   ui.btnFlip.title = mode === "ai" ? (state.terminal ? "Undo or start a new game to switch colours" : "Switch colours from the current position") : "Swap engines and start a new game";
-  ui.btnNew.disabled = mode === "room" && !roomReady;
-  ui.btnNew.textContent = mode === "room" && roomRole === "guest" ? "Request rematch" : "New game";
+  updateRestartButtons();
   const total = replayStates ? replayStates.length - 1 : 0;
   ui.replayCard.hidden = !replayStates;
   ui.btnPrev.disabled = replayIdx === 0;
@@ -1587,9 +1588,14 @@ function finish() {
 function newGame({ broadcast = true } = {}) {
   if (mode === "replay") { setMode("ai"); return; }
   if (mode === "room" && roomRole === "guest" && broadcast) {
-    if (roomReady) { netSend({ t: "askRestart" }); roomMsg("Rematch requested. Waiting for the host."); }
+    if (roomReady && !roomRematchPending && netSend({ t: "askRestart" })) {
+      roomRematchPending = true;
+      updateRestartButtons();
+      updateResult();
+    }
     return;
   }
+  roomRematchPending = false;
   cancelAi();
   resetExternalConversations();
   replayPlaying = false;
@@ -1881,6 +1887,26 @@ function setMode(next) {
   newGame();
 }
 
+function roomRematchMessage() {
+  if (mode !== "room" || !roomRematchPending) return "";
+  return roomRole === "guest" ? "Rematch requested. Waiting for the host." : "Your opponent requested a rematch.";
+}
+function updateRestartButtons() {
+  const inRoom = mode === "room";
+  const guest = inRoom && roomRole === "guest";
+  const pending = inRoom && roomRematchPending;
+  const label = pending ? (guest ? "Waiting for host…" : "Accept rematch") : guest ? "Request rematch" : "";
+  const disabled = inRoom && (!roomReady || (guest && pending));
+  ui.btnNew.textContent = label || "New game";
+  ui.btnResultNew.textContent = label || "Play again";
+  ui.btnNew.disabled = ui.btnResultNew.disabled = disabled;
+  // An older cached page may not have the inline notice yet.
+  if (ui.roomRematch) {
+    ui.roomRematch.hidden = !pending;
+    const message = roomRematchMessage();
+    if (ui.roomRematch.textContent !== message) ui.roomRematch.textContent = message;
+  }
+}
 function roomMsg(text) { ui.roomMsg.textContent = text; }
 function peerAvailable() { return typeof window.Peer === "function"; }
 const ROOM_TIMEOUT = 12_000;
@@ -1980,6 +2006,7 @@ function bindConn(channel) {
     clearTimeout(roomTimer);
     conn = null;
     roomReady = false;
+    roomRematchPending = false;
     channel.close();
     render();
     const reconnect = roomRole === "host" ? `Opponent can rejoin room ${roomCode}.` : `Join room ${roomCode} again to resume.`;
@@ -2023,6 +2050,7 @@ function handleNet(message) {
     }
     clearTimeout(roomTimer);
     roomReady = true;
+    if (!records.length) roomRematchPending = false;
     state = position;
     history = states;
     moves = records;
@@ -2047,13 +2075,15 @@ function handleNet(message) {
     // Compatibility with a host using the earlier restart message.
     newGame({ broadcast: false });
   } else if (message.t === "askRestart" && roomRole === "host") {
-    roomMsg("Your opponent requests a rematch. Choose New game to accept.");
+    roomRematchPending = true;
+    updateRestartButtons();
+    updateResult();
   }
 }
 function netSend(message) {
-  if (mode === "room" && conn?.open) {
-    try { conn.send(message); } catch (error) { roomMsg(error.message || String(error)); }
-  }
+  if (mode !== "room" || !conn?.open) return false;
+  try { conn.send(message); return true; }
+  catch (error) { roomMsg(error.message || String(error)); return false; }
 }
 function resetPeer() {
   clearTimeout(roomTimer);
@@ -2061,6 +2091,7 @@ function resetPeer() {
   conn = null;
   peer = null;
   roomReady = false;
+  roomRematchPending = false;
   roomRole = null;
   updateViewFlip();
   channel?.close();
@@ -2211,6 +2242,7 @@ ui.btnResult.addEventListener("click", openResult);
 ui.btnResultClose.addEventListener("click", closeResult);
 ui.btnResultBoard.addEventListener("click", closeResult);
 ui.btnResultNew.addEventListener("click", () => {
+  if (mode === "room" && roomRole === "guest") { newGame(); return; }
   closeResult();
   newGame();
   ui.btnNew.focus({ preventScroll: true });
