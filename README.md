@@ -202,28 +202,33 @@ Leave the key blank only when the server does not require authentication.
 Each move sends the rules, the two pawn coordinates, every placed wall, remaining
 wall reserves, the side to move, move count, result when available, up to 12 recent
 moves and all legal actions. Coordinates follow the fixed notation even when the
-board is flipped. The expected reply is one action and optional commentary.
+board is flipped. A single legal action is enough.
 
 ```json
-{"move":"H e5","say":"Slow the opponent’s route.","plan":["Check the left corridor next turn."]}
+{"move":"H e5"}
 ```
 
-A reply may use a coordinate like `e8`, wall notation like `H e5` or `V e5`, or a
-legal numeric action ID in `move`. `say` and `plan` are displayed in chat.
-Plans never place moves. The game checks the reply against the legal-action list
-and uses local Alpha-beta for the turn if the endpoint fails or sends an invalid
-reply. Valid decisions for identical context can be reused in the current tab.
-The result cache is separate for each logical seat and board colour, and matches
-the endpoint, API format, model, image permission and full submitted position
-context. Saving settings or forgetting a key clears it. Changing the endpoint,
-model, format or key also cancels that profile's pending chat and clears its
-conversation. The page labels reused moves and provider-reported cached tokens;
-provider prompt-cache availability and pricing are not guaranteed by this app.
-If board images are enabled for the seat, `{"want_board":true}` requests a single
-512×512 JPEG of the board for a follow-up call.
+The model can use a pawn coordinate such as `e8`, wall notation such as `H e5`
+or `V e5`, or a legal numeric action ID in `move`. Optional `say` and `plan`
+fields appear in chat. If a request fails or the action is invalid, the board
+waits on the same turn and offers **Retry AI move**. If board images are enabled,
+`{"want_board":true}` requests a 512×512 JPEG for a follow-up call.
 
-Chat sends the current position, the question and up to eight previous chat
-messages for that seat. Chat replies are displayed as text and do not play moves.
+Chat and automatic moves share a conversation per logical seat. The latest
+request adds the current board and either a chat question or a request to play.
+Up to 12 completed chat exchanges and 12 AI moves per seat are included in later
+requests, so chat messages can guide automatic moves and will be sent to the
+endpoint again. Previous turns keep their order and content while they fit in
+this window. The provider can reuse prompt prefixes when it supports caching.
+The page shows provider-reported cached token counts when available.
+
+A validated move can also be reused locally when the position and conversation
+match exactly. Undo drops AI moves removed from the board and keeps chat
+exchanges. Starting a new game, opening a replay or changing the provider,
+model, API format or key clears the affected conversation. **Clear this AI
+conversation** clears it at the current board. **Test** sends its own short
+request. Chat history stays in page memory. You can cancel requests from the UI.
+The page has no fixed external AI timeout. The provider may enforce its own.
 
 After building, `node tools/check-external-ai-ui.mjs` checks consent, all three
 formats, local CORS, caching, cancellation and mobile layout with local mock

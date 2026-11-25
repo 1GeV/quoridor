@@ -35,10 +35,12 @@ const api = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") return res.writeHead(204).end();
   let raw = ""; for await (const part of req) raw += part;
   const body = JSON.parse(raw), messages = body.messages || body.input || [];
-  const last = messages.at(-1)?.content;
-  const kind = raw.includes("exactly: OK") ? "test" : typeof last === "string" && last.includes("Question:") ? "chat" : "move";
-  const board = kind === "move" ? JSON.parse(typeof last === "string" ? last : last[0].text) : null;
-  const call = { kind, model: body.model, body, url: req.url, origin: req.headers.origin };
+  const turns = messages.map(({ role, content }) => ({ role, content: typeof content === "string" ? content : content[0]?.text }));
+  const system = body.instructions ?? body.system?.[0]?.text ?? turns.find((message) => message.role === "system")?.content;
+  const last = turns.at(-1)?.content;
+  const board = last?.startsWith("{") ? JSON.parse(last) : null;
+  const kind = board?.task ?? "test";
+  const call = { kind, board, turns, system, model: body.model, body, url: req.url, origin: req.headers.origin };
   calls.push(call);
   if (String(body.model).startsWith("failed")) {
     res.writeHead(503, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "mock unavailable" }));
@@ -47,7 +49,11 @@ const api = http.createServer(async (req, res) => {
   const reply = () => {
     if (res.destroyed) return;
     res.setHeader("Content-Type", "application/json");
-    const text = kind === "test" ? "OK" : kind === "chat" ? `Reply from ${body.model}.` : JSON.stringify({ move: board.legalActions[0], say: "Mock move." });
+    const requests = turns.filter((turn) => turn.role === "user" && turn.content.startsWith("{")).map((turn) => JSON.parse(turn.content));
+    const preference = requests.findLast((request) => /prefer a (wall|pawn)/.test(request.message))?.message;
+    const move = kind === "move" && (preference?.includes("prefer a wall")
+      ? board.legalActions.find((action) => /^[HV] /.test(action)) : board.legalActions[0]);
+    const text = kind === "test" ? "OK" : kind === "chat" ? `Reply from ${body.model}.` : JSON.stringify({ move });
     res.end(JSON.stringify(req.url.endsWith("/responses") ? { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }], usage: { input_tokens_details: { cached_tokens: 7 } } }
       : req.url.endsWith("/messages") ? { content: [{ type: "text", text }], usage: { cache_read_input_tokens: 7 } }
       : { choices: [{ message: { content: text } }], usage: { prompt_tokens_details: { cached_tokens: 7 } } }));
@@ -131,6 +137,17 @@ try {
   }, enabled, model);
   const ply = () => page.run(() => quoridor.state().ply);
   const moveCount = () => calls.filter((item) => item.kind === "move").length;
+  const sendMessage = (text) => page.run((text) => {
+    const send = document.querySelector("#btnChatSend");
+    if (send.disabled || send.textContent !== "Send") throw Error("Chat send was unavailable");
+    document.querySelector("#chatInput").value = text;
+    send.click();
+  }, text);
+  const chatReady = () => page.wait(() => {
+    const send = document.querySelector("#btnChatSend");
+    return !send.disabled && send.textContent === "Send";
+  });
+  const chatLog = () => page.run(() => document.querySelector("#chatLog").textContent);
 
   await fresh({}, [{}, {}]);
   assert.equal(await page.run(() => document.querySelector("#extAllowMoves").disabled), false);
@@ -148,16 +165,21 @@ try {
   await page.run(() => document.querySelector("#btnExternalSetup").click());
   assert.equal(await page.run(() => document.activeElement.id), "extAllowMoves");
   await page.run(() => document.querySelector("#btnExtTest").click());
-  await page.wait(() => !document.querySelector("#btnExtTest").disabled);
+  await page.wait(() => document.querySelector("#btnExtTest").textContent === "Test");
   assert.equal(calls.at(-1).kind, "test");
-  await page.run(() => { document.querySelector("#chatInput").value = "How should I play?"; document.querySelector("#btnChatSend").click(); });
-  await page.wait(() => !document.querySelector("#btnChatSend").disabled);
-  assert.equal(calls.at(-1).kind, "chat"); assert.equal(await ply(), 1);
+  await sendMessage("Please prefer a wall."); await chatReady();
+  const openingChat = calls.at(-1);
+  assert.equal(openingChat.kind, "chat"); assert.equal(await ply(), 1);
   await page.run(() => { document.querySelector("#extAllowMoves").checked = true; });
   await sleep(100); assert.equal(moveCount(), 0);
   await save(true); await page.wait(() => quoridor.state().ply === 2);
   assert.equal(moveCount(), 1); assert.equal(calls.at(-1).origin, origin);
-  assert.match(await page.run(() => document.querySelector("#chatLog").textContent), /PROMPT CACHE 7 TOK/);
+  const openingMove = calls.at(-1);
+  assert.equal(openingMove.system, openingChat.system);
+  assert.match(openingMove.system, /Both are optional/);
+  assert.deepEqual(openingMove.turns.slice(0, openingChat.turns.length), openingChat.turns);
+  assert.match(await chatLog(), /PROMPT CACHE 7 TOK.*[HV] [a-h][1-8]/);
+  assert.equal(await page.run(() => quoridor.state().walls[1]), 9);
   console.log("PASS: unchecked seat never searches or moves; explicit Test/chat work; Save resumes through a cross-origin localhost API");
 
   await page.run(() => document.querySelector("#btnUndo").click());
@@ -167,6 +189,29 @@ try {
   await page.run(() => document.querySelector("#btnUndo").click());
   await humanMove(75); await page.wait(() => quoridor.state().ply === 2);
   assert.equal(moveCount(), 2);
+  const secondMove = calls.at(-1);
+  await sendMessage("Now prefer a pawn move."); await chatReady();
+  const followup = calls.at(-1);
+  assert.deepEqual(followup.turns.slice(0, secondMove.turns.length), secondMove.turns);
+  const bareMove = JSON.parse(followup.turns.at(-2).content);
+  assert.deepEqual(Object.keys(bareMove), ["move"]);
+  assert.deepEqual(followup.board.placedWalls, [bareMove.move]);
+  await page.run(() => document.querySelector("#btnExtTest").click());
+  await page.wait(() => document.querySelector("#btnExtTest").textContent === "Test");
+  assert.equal(calls.at(-1).kind, "test");
+  assert.doesNotMatch(JSON.stringify(calls.at(-1).turns), /prefer a/);
+  await page.run(() => document.querySelector("#btnUndo").click());
+  await humanMove(75); await page.wait(() => quoridor.state().ply === 2);
+  assert.equal(moveCount(), 3);
+  assert.match(JSON.stringify(calls.at(-1).turns), /Now prefer a pawn move/);
+  assert.equal(calls.at(-1).turns.filter((turn) => turn.role === "assistant").length, 2);
+  assert.equal(await page.run(() => quoridor.state().walls[1]), 10);
+  await page.run(() => document.querySelector("#btnChatClear").click());
+  await page.run(() => document.querySelector("#btnUndo").click());
+  await humanMove(75); await page.wait(() => quoridor.state().ply === 2);
+  assert.equal(moveCount(), 4);
+  assert.equal(calls.at(-1).turns.length, 2);
+  console.log("PASS: chat affects automatic moves, a bare move feeds later chat, undo keeps strategy, and clear resets history");
   for (const [field, value] of [["extModel", "other-model"], ["extKey", "test-only-key"], ["extBase", apiOrigin + "/alternate/v1"], ["extProtocol", "responses"]]) {
     await page.run((field, value) => { document.querySelector("#" + field).value = value; document.querySelector("#btnExtSave").click(); quoridor.newGame(); }, field, value);
     const before = moveCount(); await humanMove(); await page.wait(() => quoridor.state().ply === 2);
@@ -176,10 +221,16 @@ try {
 
   for (const protocol of ["responses", "anthropic"]) {
     await fresh({}, [{}, { ...profile(true), protocol }]);
+    await sendMessage("Please prefer a wall."); await chatReady();
     await humanMove(); await page.wait(() => quoridor.state().ply === 2);
     assert.equal(moveCount(), 1);
-    assert.ok(calls[0].url.endsWith(protocol === "responses" ? "/responses" : "/messages"));
-    if (protocol === "responses") assert.equal(calls[0].body.store, false);
+    const [question, move] = calls;
+    assert.ok(move.url.endsWith(protocol === "responses" ? "/responses" : "/messages"));
+    assert.equal(move.system, question.system);
+    assert.deepEqual(move.turns.slice(0, question.turns.length), question.turns);
+    assert.equal(await page.run(() => quoridor.state().walls[1]), 9);
+    if (protocol === "responses") assert.equal(move.body.store, false);
+    else assert.equal(move.body.messages.at(-1).content[0].cache_control.type, "ephemeral");
   }
   console.log("PASS: automatic moves work with Chat Completions, Responses and Anthropic Messages");
   await fresh({}, [{}, profile(true)]);
@@ -229,15 +280,61 @@ try {
   assert.equal(calls.at(-1).model, "new-model");
   console.log("PASS: revoking consent cancels both delayed starts and in-flight moves without a fallback move");
 
+  await fresh({}, [{}, profile(true, "delayed-ordered")]);
+  await sendMessage("Please prefer a wall while your turn starts.");
+  await humanMove();
+  await page.wait(() => document.querySelector("#hint").textContent === "Waiting for the chat reply");
+  assert.equal(moveCount(), 0);
+  releaseReplies();
+  await page.wait(() => document.querySelector("#chatStatus").textContent === "playing");
+  for (let i = 0; i < 100 && !delayed.length; i++) await sleep(20);
+  assert.equal(delayed.length, 1);
+  assert.match(JSON.stringify(calls.at(-1).turns), /prefer a wall while your turn starts/);
+  releaseReplies();
+  await page.wait(() => quoridor.state().ply === 2);
+  assert.equal(await page.run(() => quoridor.state().walls[1]), 9);
+  console.log("PASS: an automatic turn waits for an earlier chat request on the same seat");
+
+  await fresh({}, [{}, profile(true, "delayed-cancel")]);
+  await page.run(() => {
+    document.querySelector("#btnExtToggle").click();
+    document.querySelector("#btnExtTest").click();
+  });
+  for (let i = 0; i < 100 && !delayed.length; i++) await sleep(20);
+  assert.equal(delayed.length, 1);
+  await page.run(() => document.querySelector("#btnExtTest").click());
+  await page.wait(() => document.querySelector("#extNote").textContent === "Test cancelled.");
+  releaseReplies();
+  await sendMessage("Please prefer a wall, then cancel this request.");
+  for (let i = 0; i < 100 && !delayed.length; i++) await sleep(20);
+  assert.equal(delayed.length, 1);
+  await page.run(() => document.querySelector("#btnChatSend").click());
+  await chatReady(); releaseReplies();
+  assert.doesNotMatch(await chatLog(), /prefer a wall/);
+  await humanMove();
+  for (let i = 0; i < 100 && !delayed.length; i++) await sleep(20);
+  assert.equal(delayed.length, 1);
+  assert.doesNotMatch(JSON.stringify(calls.at(-1).turns), /prefer a wall/);
+  assert.equal(await page.run(() => document.querySelector("#btnRetryAI").textContent), "Cancel AI move");
+  await page.run(() => document.querySelector("#btnRetryAI").click());
+  releaseReplies(); await sleep(100);
+  assert.equal(await ply(), 1);
+  assert.equal(await page.run(() => document.querySelector("#btnRetryAI").textContent), "Retry AI move");
+  await page.run(() => document.querySelector("#btnRetryAI").click());
+  for (let i = 0; i < 100 && !delayed.length; i++) await sleep(20);
+  assert.equal(delayed.length, 1);
+  releaseReplies(); await page.wait(() => quoridor.state().ply === 2);
+  console.log("PASS: Test, chat and moves can all be cancelled; cancelled turns leave no history or move result");
+
   await fresh({}, [{}, profile(false, "delayed-chat")]);
-  await page.run(() => { document.querySelector("#chatInput").value = "Old conversation"; document.querySelector("#btnChatSend").click(); });
+  await sendMessage("Old conversation");
   for (let i = 0; i < 100 && !delayed.length; i++) await sleep(20);
   assert.equal(delayed.length, 1);
   await save(false, "new-chat-model");
   assert.equal(await page.run(() => document.querySelector("#btnChatSend").disabled), false);
   releaseReplies();
   await page.run(() => { document.querySelector("#chatInput").value = "New conversation"; document.querySelector("#btnChatSend").click(); });
-  await page.wait(() => !document.querySelector("#btnChatSend").disabled);
+  await chatReady();
   const chat = await page.run(() => document.querySelector("#chatLog").textContent);
   assert.match(chat, /Reply from new-chat-model/); assert.doesNotMatch(chat, /Old conversation|Reply from delayed-chat/);
   assert.doesNotMatch(JSON.stringify(calls.at(-1).body), /Old conversation/);
@@ -247,12 +344,23 @@ try {
   await page.wait(() => document.querySelector("#status").textContent === "External AI needs permission");
   assert.equal(await page.run(() => document.querySelector("#btnPlay").textContent), "Play");
   assert.equal(await page.run(() => document.querySelector("#extSeat").value), "0");
+  const selectSeat = (seat) => page.run((seat) => {
+    const select = document.querySelector("#extSeat");
+    select.value = seat;
+    select.dispatchEvent(new Event("change"));
+  }, seat);
+  await selectSeat("1"); await sendMessage("Blue strategy only"); await chatReady();
+  await selectSeat("0"); await sendMessage("Please prefer a wall as Red"); await chatReady();
   await save(true); await sleep(100); assert.equal(await ply(), 0);
   await page.run(() => document.querySelector("#btnPlay").click());
   await page.wait(() => quoridor.state().ply === 1 && document.querySelector("#status").textContent === "External AI needs permission");
   assert.equal(await page.run(() => document.querySelector("#extSeat").value), "1");
   assert.equal(moveCount(), 1);
-  console.log("PASS: AI-vs-AI pauses, selects the correct profile, and requires Play after permission is saved");
+  assert.match(JSON.stringify(calls.at(-1).turns), /Please prefer a wall as Red/);
+  assert.doesNotMatch(JSON.stringify(calls.at(-1).turns), /Blue strategy only/);
+  assert.match(await chatLog(), /Blue strategy only/);
+  assert.doesNotMatch(await chatLog(), /Please prefer a wall as Red/);
+  console.log("PASS: AI-vs-AI keeps separate conversations, selects the correct profile, and requires Play after saving permission");
 
   await fresh({ mode: "ai_ai", humanSide: 1, opponentSeat: 1, engineRed: "ext:default", speed: 1 }, [profile(true), profile(true)]);
   await page.wait(() => quoridor.state().ply === 1);

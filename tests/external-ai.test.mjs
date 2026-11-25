@@ -169,3 +169,17 @@ test("optional Effort is mapped per API format and Auto omits it", async () => {
     if (item.protocol === "anthropic") assert.equal(selected.max_tokens, 16384);
   }
 });
+
+test("even Extra high requests wait for the provider and accept in-flight cancellation", async (t) => {
+  const timeout = t.mock.method(AbortSignal, "timeout", () => { throw Error("Unexpected client timeout"); });
+  const controller = new AbortController();
+  const request = completeExternal(messages, { signal: controller.signal, fetchImpl: async (_url, options) => {
+    assert.equal(options.signal, controller.signal);
+    return new Promise((_, reject) => {
+      options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+    });
+  } }, { ...profile, effort: "xhigh" });
+  controller.abort();
+  await assert.rejects(request, { name: "AbortError" });
+  assert.equal(timeout.mock.callCount(), 0);
+});
