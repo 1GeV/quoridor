@@ -6,7 +6,7 @@ import { searchGuided } from "./guided.js";
 import { ClaustrophobiaNet } from "./claustrophobia.js";
 import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS, EXTERNAL_EFFORTS } from "./external-ai.js";
 import { positionKey } from "./detour.js";
-import { clearAIAssets, subscribeAIAssets } from "./ai-assets.js";
+import { clearAIAssets, pruneAIAssets, subscribeAIAssets } from "./ai-assets.js";
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -87,6 +87,8 @@ const ui = {
   btnChatSend: $("btnChatSend"),
   btnChatClear: $("btnChatClear"),
   btnClearLocal: $("btnClearLocal"),
+  btnClearAIFiles: $("btnClearAIFiles"),
+  aiFilesFeedback: $("aiFilesFeedback"),
   btnNew: $("btnNew"),
   btnPlay: $("btnPlay"),
   btnUndo: $("btnUndo"),
@@ -1039,7 +1041,7 @@ function forgetExternalKey() {
   if (block) pauseExternalTurn(block);
 }
 async function clearLocalData() {
-  if (!window.confirm("Delete this app's saved games, preferences and API settings on this device? This cannot delete data already sent to third parties.")) return;
+  if (!window.confirm("Delete this app's saved games, preferences, API settings and AI downloads on this device? This cannot delete data already sent to third parties.")) return;
   cancelAi();
   cancelChat();
   extTestController?.abort();
@@ -2261,6 +2263,12 @@ ui.btnExtSave.addEventListener("click", () => saveExtFromFields());
 ui.btnExtForget.addEventListener("click", forgetExternalKey);
 ui.btnChatClear.addEventListener("click", clearAiChat);
 ui.btnClearLocal.addEventListener("click", clearLocalData);
+ui.btnClearAIFiles.addEventListener("click", async () => {
+  ui.btnClearAIFiles.disabled = true;
+  const cleared = await clearAIAssets();
+  ui.aiFilesFeedback.textContent = cleared ? "Cached AI files cleared." : "Could not clear the AI cache.";
+  ui.btnClearAIFiles.disabled = false;
+});
 ui.btnExtTest.addEventListener("click", async () => {
   if (extTestController) { extTestController.abort(); return; }
   const profile = readExtFields();
@@ -2328,6 +2336,7 @@ window.quoridor = {
 };
 
 function boot() {
+  void pruneAIAssets();
   applyTheme();
   engineCfg[0] = fillEngineSelect(ui.engineRed, engineCfg[0]);
   engineCfg[1] = fillEngineSelect(ui.engineBlue, engineCfg[1]);

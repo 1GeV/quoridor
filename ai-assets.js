@@ -89,7 +89,7 @@ export async function cachedAIBytes(url, revision, {
         }
       } catch { try { await cache.delete(requestKey); } catch {} }
     }
-    const response = await fetchImpl(url, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer" });
+    const response = await fetchImpl(url, { cache: "no-store", credentials: "omit", redirect: "error", referrerPolicy: "no-referrer" });
     if (!response.ok) throw new Error(`AI download failed (HTTP ${response.status}). Please try again.`);
     const bytes = await verifiedBytes(response, revision, report);
     if (cache && startedGeneration === generation) {
@@ -110,7 +110,23 @@ export function loadAIAsset(relative) {
   return cachedAIBytes(url.href, AI_REVISIONS[name], { onProgress: (progress) => publishProgress(url.href, progress) });
 }
 
+export async function pruneAIAssets(cacheStorage = globalThis.caches, base = new URL("./", import.meta.url)) {
+  try {
+    if (!await cacheStorage?.has(AI_CACHE)) return;
+    const cache = await cacheStorage.open(AI_CACHE);
+    for (const request of await cache.keys()) {
+      const url = new URL(request.url);
+      if (!url.href.startsWith(base.href)) continue;
+      const path = url.pathname.slice(base.pathname.length);
+      if (!/^(models\/[^/]+\.onnx|vendor\/ort\/[^/]+\.wasm)$/.test(path)) continue;
+      const revision = url.searchParams.get("quoridor-ai");
+      if (revision && AI_REVISIONS[path] !== revision) await cache.delete(request);
+    }
+  } catch { /* Best-effort cleanup must not prevent play. */ }
+}
+
 export async function clearAIAssets(cacheStorage = globalThis.caches) {
   generation++;
-  try { await cacheStorage?.delete(AI_CACHE); } catch {}
+  try { await cacheStorage?.delete(AI_CACHE); return true; }
+  catch { return false; }
 }
