@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const output = path.resolve(root, "dist");
 const marker = ".quoridor-site-build.json";
 const entries = [
-  ".nojekyll", "index.html", "guide.html", "robots.txt", "sitemap.xml", "assets", "board.css", "app.js", "rules.js", "sigma.js", "startup.js", "isolation-sw.js",
+  ".nojekyll", "index.html", "guide.html", "robots.txt", "sitemap.xml", "assets", "board.css", "app.js", "rules.js", "sigma.js", "sigma-gpu.js", "sigma-gpu-worker.js", "startup.js", "isolation-sw.js",
   "alphabeta.js", "alphabeta-worker.js", "claustrophobia.js", "detour.js",
   "endgame.js", "external-ai.js", "guided.js", "heuristic.js", "ai-assets.js",
   "privacy.html", "terms.html", "legal.css", "LICENSE", "NOTICE.md", "models", "vendor",

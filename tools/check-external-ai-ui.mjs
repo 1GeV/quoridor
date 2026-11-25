@@ -506,6 +506,7 @@ try {
   assert.deepEqual(afterShortViewport, { ...beforeShortViewport, mutations: 0 }, JSON.stringify({ beforeShortViewport, afterShortViewport }));
   await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await sleep(80);
+  await page.run(() => document.querySelector('[data-tool="auto"]').click());
   const mobilePoints = await page.run(() => {
     const button = document.querySelector('[data-tool="H"]').getBoundingClientRect();
     const vertical = document.querySelector('[data-tool="V"]').getBoundingClientRect();
@@ -516,6 +517,24 @@ try {
       startV: { x: vertical.left + vertical.width / 2, y: vertical.top + vertical.height / 2 },
       legalH: at(4.5, 3.5), overlapH: at(5.5, 3.5), outside: { x: board.right + 35, y: board.top + board.height / 2 }, legalV: at(1.5, 4.5) };
   });
+  const boardBox = () => { const rect = document.querySelector("#board").getBoundingClientRect(); return [rect.x, rect.y, rect.width, rect.height]; };
+  const boardBeforeMove = await page.run(boardBox);
+  const tapPoint = await page.run(() => {
+    const board = document.querySelector("#board");
+    if (getComputedStyle(board).webkitTapHighlightColor !== "rgba(0, 0, 0, 0)") throw Error("Canvas has a native tap highlight");
+    const rect = board.getBoundingClientRect();
+    const cell = Math.round(rect.width / 10.48), margin = Math.floor(cell * .74);
+    return { x: rect.left + margin + 4.5 * cell, y: rect.top + margin + 7.5 * cell };
+  });
+  await page.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [tapPoint] });
+  await page.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await page.wait(() => quoridor.state().ply === 1);
+  assert.equal(await page.run(() => quoridor.state().last), 67);
+  assert.deepEqual(await page.run(boardBox), boardBeforeMove);
+  await page.run(() => { document.querySelector("#aiLoading").hidden = false; });
+  assert.deepEqual(await page.run(boardBox), boardBeforeMove, "AI progress must not move the board");
+  await page.run(() => { document.querySelector("#aiLoading").hidden = true; quoridor.setMode("hotseat"); });
+  console.log("PASS: mobile pawn tap remains legal without a native tint; board position is stable during progress");
   await touchDrag(page, mobilePoints.start, mobilePoints.legalH);
   assert.equal(await ply(), 1);
   assert.equal(await page.run(() => quoridor.state().last), 81 + 3 * 8 + 4);
@@ -545,6 +564,26 @@ try {
   assert.equal(calls.length, 0); assert.equal(await page.run(() => document.querySelector("#btnExternalSetup").hidden), true);
   assert.deepEqual(errors, []);
   console.log("PASS: compact help fits mobile/desktop, local engines work, and no browser exceptions occurred");
+
+  await fresh({ mode: "ai", engineBlue: "sigma:64" });
+  await humanMove();
+  const waitForLocalMoves = (count) => page.run(async (count) => {
+    const deadline = performance.now() + 12000;
+    while (quoridor.state().ply < count && performance.now() < deadline) {
+      if (document.querySelector("#status").textContent === "AI engine failed") break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return { ply: quoridor.state().ply, hint: document.querySelector("#hint").textContent };
+  }, count);
+  const humanVsSigma = await waitForLocalMoves(2);
+  assert.equal(humanVsSigma.ply, 2, JSON.stringify(humanVsSigma));
+  assert.equal(await page.run(() => quoridor.metrics().engine), "sigma");
+  await fresh({ mode: "ai_ai", engineRed: "sigma:64", engineBlue: "champion:6:1200" });
+  const sigmaVsChampion = await waitForLocalMoves(4);
+  assert.ok(sigmaVsChampion.ply >= 4, JSON.stringify(sigmaVsChampion));
+  assert.equal(calls.length, 0);
+  assert.deepEqual(errors, []);
+  console.log("PASS: Sigma starts a cold runtime in VS AI and alternates with Claustrophobia in AI vs AI");
   for (const width of [1200, 390]) {
     await page.send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 500 });
     await page.send("Page.navigate", { url: origin + "/quoridor/guide.html" });

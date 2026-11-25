@@ -3,6 +3,7 @@
 import { State, actionStr, A_H, A_V, N_MOVES } from "./rules.js";
 import { SigmaNet, SigmaAgent, SigmaBatchAgent } from "./sigma.js";
 import { searchGuided } from "./guided.js";
+import { openSigmaGpu } from "./sigma-gpu.js";
 import { ClaustrophobiaNet } from "./claustrophobia.js";
 import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS, EXTERNAL_EFFORTS } from "./external-ai.js";
 import { positionKey } from "./detour.js";
@@ -859,12 +860,12 @@ function ensureSigma() {
   if (sigmaNet) return Promise.resolve(sigmaNet);
   if (sigmaPromise) return sigmaPromise;
   sigmaPromise = (async () => {
-    await loadRuntime();
     if (navigator.gpu) {
+      let gpu;
       try {
-        const net = await SigmaNet.load("./models/sigma_9x9_batch.onnx", null,
-          { executionProviders: ["webgpu"] });
-        try {
+        gpu = await openSigmaGpu();
+        if (gpu) {
+          const net = new SigmaNet(gpu, gpu.infer);
           const opening = State.new();
           const moved = opening.doAction(67);
           const single = await net.raw(moved), batch = await net.rawBatch([opening, moved]);
@@ -874,14 +875,13 @@ function ensureSigma() {
           }
           sigmaBatch = true;
           return sigmaNet = net;
-        } catch (error) {
-          void net.session.release().catch(() => {});
-          throw error;
         }
       } catch (err) {
+        gpu?.release();
         console.warn("WebGPU path failed, falling back to wasm", err);
       }
     }
+    await loadRuntime();
     sigmaBatch = false;
     return sigmaNet = await SigmaNet.load("./models/sigma_9x9.onnx");
   })().finally(() => { sigmaPromise = null; updateAILoading(); });
@@ -2119,7 +2119,7 @@ for (const name of ["pointercancel", "lostpointercapture"]) {
     if (wallDrag?.pointerId === event.pointerId) { cancelWallDrag(); draw(); }
   });
 }
-window.addEventListener("blur", () => { cancelWallDrag(); draw(); });
+window.addEventListener("blur", () => { if (wallDrag) { cancelWallDrag(); draw(); } });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && wallDrag) { cancelWallDrag(); draw(); }
 });
@@ -2154,7 +2154,7 @@ cvs.addEventListener("pointermove", (e) => {
   hover = h;
   if (!same) draw();
 });
-cvs.addEventListener("pointerleave", () => { if (!wallDrag) { hover = null; draw(); } });
+cvs.addEventListener("pointerleave", () => { if (hover && !wallDrag) { hover = null; draw(); } });
 cvs.addEventListener("click", (e) => {
   if (!canPlay() || busy) return;
   const h = pick(e);
