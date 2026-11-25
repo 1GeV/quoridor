@@ -12,9 +12,6 @@
   <h1>Privacy &amp; data</h1>
   <p class="muted">Updated November 25, 2026.</p>
   <p class="notice">Built-in AI runs on your device. External AI and online rooms are optional. This application has no accounts, advertising, analytics SDK, payment system or project-operated data server. Hosting and connection providers still process network data.</p>
-  <h2>About this project</h2>
-  <p>This is an independent community software project, published under the project name Quoridor contributors. That name is a project credit, not a claim that an incorporated company operates this site. This page does not publish a maintainer's personal name, email, phone number or address.</p>
-  <p>This notice explains the application's actual data handling. It does not waive statutory privacy rights or replace any operator disclosure required by applicable law.</p>
   <h2>What stays in your browser</h2>
   <table><thead><tr><th>Data</th><th>Purpose and retention</th></tr></thead><tbody>
     <tr><td>Theme, engines, game preferences</td><td>Local storage, until you clear it.</td></tr>
@@ -31,7 +28,7 @@
   <p>Requests go directly from your browser to the endpoint you enter. That endpoint receives your API key in an authorization header, model name and network metadata such as your IP address. No project relay is involved. Remote endpoints require HTTPS; plain HTTP is allowed only for a local loopback service.</p>
   <p>For a move, the endpoint receives the rules, pawn coordinates, walls and reserves, side to move, move count, up to 12 recent moves and legal actions. If you enable board images and the model requests one, it also receives an image of the game board. This does not access your camera or take a screenshot of your desktop.</p>
   <p>AI chat sends your question, the current board and up to eight previous conversation messages for the selected seat, including move commentary when present. Move requests and chat are separate requests; the application does not create a shared, persistent provider conversation. Provider-side prompt caching or logging may still retain input under that provider's policy.</p>
-  <p>Supported formats are Chat Completions, OpenAI Responses and Anthropic Messages. Responses requests use <code>store: false</code> and send the required context directly rather than a stored conversation identifier. This setting does not guarantee that a provider keeps no security logs or cached prompts; compatible third-party providers may apply their own retention rules.</p>
+  <p>Move and chat requests each include their required context. The app does not request a stored conversation in the Responses API (<code>store: false</code>). Provider-side logging and prompt caching remain subject to that provider's policy.</p>
   <p>The provider may charge, retain input or process data in another country. Review its terms, privacy policy, geographic availability and age restrictions before connecting. Do not submit personal or confidential information in AI chat. Clearing this app cannot delete data already received by the provider.</p>
   <h2 id="rooms">Online rooms</h2>
   <p>Creating or joining a room contacts the public PeerJS signalling service and WebRTC connection services such as STUN and, when available, TURN. They may process IP addresses, peer identifiers, room codes and connection metadata under their policies. The current PeerJS runtime may use relay services when a direct connection cannot be made.</p>
@@ -39,9 +36,9 @@
   <p>See <a href="https://peerjs.com/" rel="noreferrer">PeerJS</a> for the signalling service. We do not control its availability or retention practices and do not claim that it collects no data.</p>
   <h2>Your controls and deletion</h2>
   <p>Use “Forget this API key”, “Clear this AI conversation”, the saved-game delete controls, or “Clear this app's local data” in the game's footer. The last option deletes this app's preferences, saved games, endpoint settings and tab keys, then reloads. It does not clear unrelated applications, downloaded files, other open tabs' memory, provider logs or hosting logs. Browser storage is scoped to the origin; copies using the same keys on the same origin may share it.</p>
-  <p>The project provides no account or server-side archive of your games, keys or AI conversations for its maintainers to look up. Use the controls above to remove the application's browser data. For data already sent to a host or AI provider, use that provider's privacy procedures. Forgetting a key does not revoke it: revoke exposed keys at the provider. This project currently provides no dedicated privacy-request channel; this limitation does not waive any rights or duties under applicable law.</p>
-  <h2>Children and changes</h2>
-  <p>We do not request names, birth dates, identity documents, precise location or contact details. Minors should involve a parent or guardian and follow the host's and provider's age rules. A public deployer must assess applicable child privacy and game-service requirements rather than relying on this notice. Changes to actual data handling require an updated notice and any consent required by law.</p>
+  <p>The project provides no account or server-side archive of your games, keys or AI conversations for its maintainers to look up. Use the controls above to remove the application's browser data. For data already sent to a host or AI provider, use that provider's privacy procedures. Forgetting a key does not revoke it: revoke exposed keys at the provider.</p>
+  <h2>Age and third-party services</h2>
+  <p>The app does not ask for names, birth dates, identity documents, precise location or contact details, and does not verify a player's age. External AI providers may set their own age limits and parental-consent requirements. Review those rules before connecting; minors should involve a parent or guardian.</p>
 
   <nav><a href="./">Back to game</a><a href="./terms.html">Terms</a></nav>
 </main></body>
