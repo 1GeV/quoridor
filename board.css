@@ -442,7 +442,7 @@ body { background: linear-gradient(145deg, var(--bg-2), var(--bg) 440px); font-s
 .board-status .sub { font-size: 13px; min-height: 2.9em; margin-top: 4px; color: var(--muted); white-space: normal; overflow-wrap: anywhere; }
 .board-frame { min-height: 0; }
 canvas { border-radius: 18px; touch-action: manipulation; }
-#board, .board-tools button { -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.board-frame, #board, .board-tools button { -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 .board-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .board-tools button { border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--text); padding: 7px 10px; min-height: 44px; font: 600 12px/1.2 system-ui, sans-serif; cursor: pointer; }
 .board-tools button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-ink); background: var(--accent); }
