@@ -144,3 +144,26 @@ test("Responses rejects partial, failed and empty outputs without leaking provid
   const result = await completeExternal(messages, { fetchImpl: async () => Response.json({ output_text: `OK ${profile.apiKey}` }) }, { ...profile, protocol: "responses" });
   assert.equal(result.content, "OK [API key redacted]");
 });
+
+test("optional Effort is mapped per API format and Auto omits it", async () => {
+  const cases = [
+    { protocol: "chat", field: "reasoning_effort", effort: "low", reply: { choices: [{ message: { content: "OK" } }] } },
+    { protocol: "responses", field: "reasoning", effort: "high", reply: { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }] } },
+    { protocol: "anthropic", field: "output_config", effort: "medium", reply: { content: [{ type: "text", text: "OK" }] } },
+  ];
+  for (const item of cases) {
+    let payload;
+    const request = async (effort) => {
+      await completeExternal(messages, { fetchImpl: async (_url, options) => {
+        payload = JSON.parse(options.body);
+        return Response.json(item.reply);
+      } }, { ...profile, protocol: item.protocol, effort });
+      return payload;
+    };
+    const automatic = await request("auto");
+    assert.equal(item.field in automatic, false, `${item.protocol} Auto must omit its Effort field`);
+    const selected = await request(item.effort);
+    assert.deepEqual(selected[item.field], item.protocol === "responses" ? { effort: item.effort }
+      : item.protocol === "anthropic" ? { effort: item.effort } : item.effort);
+  }
+});

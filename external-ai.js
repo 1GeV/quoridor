@@ -1,5 +1,7 @@
 // Browser-direct, opt-in AI requests. No project relay or embedded credentials.
 export const EXTERNAL_PROTOCOLS = ["auto", "chat", "responses", "anthropic"];
+const EFFORT_LEVELS = ["low", "medium", "high"];
+export const EXTERNAL_EFFORTS = ["auto", ...EFFORT_LEVELS];
 export function validExtBase(baseUrl) {
   try {
     const url = new URL(baseUrl);
@@ -26,7 +28,13 @@ export function extEndpoint(profile) {
   return { url: url.href, protocol, anthropic: protocol === "anthropic" };
 }
 
+function reasoningTokenLimit(maxTokens) {
+  // Reasoning and visible text can share the same output limit.
+  return Math.max(maxTokens, 2048);
+}
+
 export function responsesBody(messages, profile, maxTokens) {
+  const hasEffort = EFFORT_LEVELS.includes(profile.effort);
   const instructions = messages.filter((m) => m.role === "system" || m.role === "developer")
     .map((m) => m.content).filter(Boolean).join("\n\n");
   const input = messages.filter((m) => m.role !== "system" && m.role !== "developer").map((m) => {
@@ -41,7 +49,8 @@ export function responsesBody(messages, profile, maxTokens) {
   // Keep the selected conversation in browser memory; do not request a stored provider conversation.
   // Temperature is omitted because some reasoning models reject it.
   return { model: profile.model, ...(instructions ? { instructions } : {}), input,
-    max_output_tokens: maxTokens, stream: false, store: false };
+    max_output_tokens: hasEffort ? reasoningTokenLimit(maxTokens) : maxTokens, stream: false, store: false,
+    ...(hasEffort ? { reasoning: { effort: profile.effort } } : {}) };
 }
 
 function anthropicContent(content) {
@@ -70,6 +79,9 @@ export function anthropicBody(messages, profile, temperature, maxTokens) {
       return { role: message.role === "assistant" ? "assistant" : "user", content };
     }),
   };
+  if (EFFORT_LEVELS.includes(profile.effort)) {
+    body.output_config = { effort: profile.effort };
+  }
   if (system) body.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
   return body;
 }
@@ -125,7 +137,10 @@ export async function completeExternal(messages, {
     abort.throwIfAborted();
     const payload = anthropic ? anthropicBody(messages, profile, temperature, maxTokens)
       : protocol === "responses" ? responsesBody(messages, profile, maxTokens)
-      : { model: profile.model, messages, temperature, max_tokens: maxTokens, stream: false };
+      : { model: profile.model, messages, stream: false,
+        ...(EFFORT_LEVELS.includes(profile.effort)
+          ? { reasoning_effort: profile.effort, max_completion_tokens: reasoningTokenLimit(maxTokens) }
+          : { temperature, max_tokens: maxTokens }) };
     const response = await fetchImpl(url, {
       method: "POST", headers, signal: abort, credentials: "omit", redirect: "error",
       referrerPolicy: "no-referrer", body: JSON.stringify(payload),

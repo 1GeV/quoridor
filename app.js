@@ -4,7 +4,7 @@ import { State, actionStr, A_H, A_V, N_MOVES } from "./rules.js";
 import { SigmaNet, SigmaAgent, SigmaBatchAgent } from "./sigma.js";
 import { searchGuided } from "./guided.js";
 import { ClaustrophobiaNet } from "./claustrophobia.js";
-import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS } from "./external-ai.js";
+import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS, EXTERNAL_EFFORTS } from "./external-ai.js";
 import { positionKey } from "./detour.js";
 import { clearAIAssets, subscribeAIAssets } from "./ai-assets.js";
 
@@ -73,6 +73,7 @@ const ui = {
   extFullEndpoint: $("extFullEndpoint"),
   extKey: $("extKey"),
   extModel: $("extModel"),
+  extEffort: $("extEffort"),
   extRemember: $("extRemember"),
   extImage: $("extImage"),
   extAllowMoves: $("extAllowMoves"),
@@ -160,7 +161,7 @@ try { savedGames = JSON.parse(localStorage.getItem(SAVE_KEY) || "[]") || []; } c
 
 const EXT_KEY = "quoridor.external.v2";
 const EXT_SESSION_PREFIX = "quoridor.extKey.session.v2.";
-const EMPTY_EXT = () => ({ baseUrl: "", protocol: "auto", fullEndpoint: false, apiKey: "", model: "", remember: false, allowImage: false, allowMoveRequests: false });
+const EMPTY_EXT = () => ({ baseUrl: "", protocol: "auto", fullEndpoint: false, apiKey: "", model: "", effort: "auto", remember: false, allowImage: false, allowMoveRequests: false });
 let extProfiles = [EMPTY_EXT(), EMPTY_EXT()];
 let extSeat = 1;
 let chatHistories = [[], []];
@@ -177,6 +178,7 @@ try {
       protocol: EXTERNAL_PROTOCOLS.includes(p.protocol) ? p.protocol : "auto",
       fullEndpoint: !!p.fullEndpoint,
       model: String(p.model || ""),
+      effort: EXTERNAL_EFFORTS.includes(p.effort) ? p.effort : "auto",
       remember: !!p.remember,
       allowImage: !!p.allowImage,
       allowMoveRequests: !!p.allowMoveRequests,
@@ -357,18 +359,24 @@ function savePlayerName(side) {
 // ---------------------------------------------------------------- geometry / drawing
 function layout() {
   const frame = ui.boardFrame.getBoundingClientRect();
-  const side = Math.min(frame.width, Math.max(300, innerHeight - 235), 660);
+  const touchLayout = matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
+  const availableHeight = touchLayout ? 660 : Math.max(300, innerHeight - 235);
+  const side = Math.min(frame.width, availableHeight, 660);
   const cell = Math.max(1, Math.floor(side / 10.48));
   const margin = Math.floor(cell * .74);
   const size = cell * 9 + margin * 2;
   const dpr = window.devicePixelRatio || 1;
-  cvs.style.width = size + "px";
-  cvs.style.height = size + "px";
-  cvs.width = Math.floor(size * dpr);
-  cvs.height = Math.floor(size * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const backingWidth = Math.max(1, Math.floor(size * dpr));
+  const backingHeight = Math.max(1, Math.floor(size * dpr));
+  const geometryChanged = !geo || geo.cell !== cell || geo.margin !== margin || geo.size !== size;
+  if (cvs.style.width !== size + "px") cvs.style.width = size + "px";
+  if (cvs.style.height !== size + "px") cvs.style.height = size + "px";
+  let backingChanged = false;
+  if (cvs.width !== backingWidth) { cvs.width = backingWidth; backingChanged = true; }
+  if (cvs.height !== backingHeight) { cvs.height = backingHeight; backingChanged = true; }
+  if (backingChanged) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   geo = { cell, margin, size };
-  draw();
+  if (geometryChanged || backingChanged) draw();
 }
 const cx = (c) => geo.margin + (c + 0.5) * geo.cell;
 const cy = (r) => geo.margin + (r + 0.5) * geo.cell;
@@ -978,7 +986,7 @@ function persistExt() {
   const payload = {
     profiles: extProfiles.map((p, i) => {
       const out = { baseUrl: p.baseUrl, protocol: p.protocol, fullEndpoint: !!p.fullEndpoint,
-        model: p.model, remember: !!p.remember, allowImage: !!p.allowImage,
+        model: p.model, effort: p.effort, remember: !!p.remember, allowImage: !!p.allowImage,
         allowMoveRequests: !!p.allowMoveRequests };
       if (p.remember) out.apiKey = p.apiKey;
       try { sessionStorage.setItem(EXT_SESSION_PREFIX + i, p.apiKey); } catch (e) {}
@@ -1046,6 +1054,7 @@ function renderExt() {
     ui.extFullEndpoint.checked = p.fullEndpoint;
     ui.extKey.value = p.apiKey;
     ui.extModel.value = p.model;
+    ui.extEffort.value = p.effort;
     ui.extRemember.checked = p.remember;
     ui.extImage.checked = p.allowImage;
     ui.extAllowMoves.checked = p.allowMoveRequests;
@@ -1100,8 +1109,9 @@ function readExtFields() {
     return false;
   }
   if (!model) { ui.extNote.textContent = "Model is required."; return false; }
+  const effort = EXTERNAL_EFFORTS.includes(ui.extEffort.value) ? ui.extEffort.value : "auto";
   const profile = { baseUrl, protocol: ui.extProtocol.value, fullEndpoint: ui.extFullEndpoint.checked,
-    model, apiKey: ui.extKey.value.trim(), remember: ui.extRemember.checked,
+    model, effort, apiKey: ui.extKey.value.trim(), remember: ui.extRemember.checked,
     allowImage: ui.extImage.checked, allowMoveRequests: ui.extAllowMoves.checked };
   try { extEndpoint(profile); } catch (error) { ui.extNote.textContent = error.message; return false; }
   return profile;
@@ -1110,14 +1120,13 @@ function saveExtFromFields() {
   const profile = readExtFields();
   if (!profile) return;
   const previous = extProfile();
-  if (previous.baseUrl !== profile.baseUrl || previous.protocol !== profile.protocol || previous.fullEndpoint !== profile.fullEndpoint ||
-      previous.model !== profile.model || previous.apiKey !== profile.apiKey) {
-    cancelChat(extSeat);
-    chatHistory = chatHistories[extSeat] = [];
-  }
+  const conversationChanged = previous.baseUrl !== profile.baseUrl || previous.protocol !== profile.protocol ||
+    previous.fullEndpoint !== profile.fullEndpoint || previous.model !== profile.model || previous.apiKey !== profile.apiKey;
+  if (conversationChanged || previous.effort !== profile.effort) cancelChat(extSeat);
+  if (conversationChanged) chatHistory = chatHistories[extSeat] = [];
   extProfiles[extSeat] = profile;
   extMoveCache.clear();
-  // Cancel the entire turn, including the initial delay and any local error fallback.
+  // Cancel any scheduled or in-flight move from the old settings.
   if (engineSeat(state.turn) === extSeat && parseEngine(engineCfg[extSeat]).kind === "ext") cancelAi();
   persistExt();
   extFormOpen = false;
@@ -1188,7 +1197,7 @@ async function externalMoveAction(position, side, signal) {
   const legal = actionsFor(position);
   const allowImage = profile.allowImage;
   const context = boardContext(position, moves);
-  const cacheKey = JSON.stringify([seat, side, profile.baseUrl, profile.protocol, profile.fullEndpoint, profile.model, allowImage, context]);
+  const cacheKey = JSON.stringify([seat, side, profile.baseUrl, profile.protocol, profile.fullEndpoint, profile.model, profile.effort, allowImage, context]);
   const hit = extMoveCache.get(cacheKey);
   if (hit) return { ...hit, cached: true, cacheRead: 0 };
   const imageRule = allowImage ? 'If a rendered board is necessary, reply {"want_board":true} with no move.' : "Make the decision using the supplied position.";
@@ -1493,6 +1502,7 @@ function applyAction(a, { remote = false } = {}) {
   const side = before.turn;
   const beforePly = before.ply;
   state = state.doAction(a);
+  hover = null;
   history.push(state);
   lastAction = a;
   for (const ag of Object.values(sigmaAgents)) if (ag) ag.advance(a);
@@ -2066,15 +2076,17 @@ $("boardTools").addEventListener("click", (event) => {
   if (canPlay() && !busy) ui.hint.textContent = boardHint();
   draw();
 });
-cvs.addEventListener("mousemove", (e) => {
-  if (wallDrag) return;
+cvs.addEventListener("pointermove", (e) => {
+  // Touch has no hover state. Ignore compatibility mouse events generated by taps;
+  // redrawing the whole canvas for them causes a visible flash on some phones.
+  if ((e.pointerType !== "mouse" && e.pointerType !== "pen") || wallDrag) return;
   if (!canPlay() || busy) { if (hover) { hover = null; draw(); } return; }
   const h = pick(e);
   const same = hover && h && hover.kind === h.kind && hover.r === h.r && hover.c === h.c;
   hover = h;
   if (!same) draw();
 });
-cvs.addEventListener("mouseleave", () => { if (!wallDrag) { hover = null; draw(); } });
+cvs.addEventListener("pointerleave", () => { if (!wallDrag) { hover = null; draw(); } });
 cvs.addEventListener("click", (e) => {
   if (!canPlay() || busy) return;
   const h = pick(e);

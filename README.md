@@ -315,6 +315,4 @@ browser; it is not part of the game.
 
 ## Licence and credits
 
-MIT for this code. SigmaQuoridor weights are MIT (c) their authors; ONNX Runtime
-Web, PeerJS and Detour are MIT. Quoridor is a trademark of Gigamic — this project is an
-unaffiliated implementation of the public rules. See `NOTICE.md`.
+The MIT licence in `LICENSE` applies to original code written for this project. Bundled third-party code and model weights retain their own licences and attributions; see `NOTICE.md`. Quoridor is a trademark of Gigamic. This is an unaffiliated implementation of the game rules and includes no official board artwork.

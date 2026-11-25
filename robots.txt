@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://1gev.github.io/quoridor/sitemap.xml

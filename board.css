@@ -185,7 +185,7 @@ canvas { display: block; border-radius: 16px; cursor: pointer; background: var(-
 
 .seg {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 5px;
   padding: 5px;
   border: 1px solid var(--line);
@@ -204,6 +204,8 @@ canvas { display: block; border-radius: 16px; cursor: pointer; background: var(-
   cursor: pointer;
   white-space: nowrap;
 }
+.seg button:nth-child(-n+3) { grid-column: span 2; }
+.seg button:nth-child(n+4) { grid-column: span 3; }
 .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 650; }
 
 .check {
@@ -417,7 +419,6 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .side-inner > .ext-card,
   .side-inner > .moves-card,
   .side-inner > .wide { grid-column: 1 / -1; }
-  .seg { grid-template-columns: repeat(3, 1fr); }
   .brandline h1 { font-size: 27px; }
 }
 @media (max-width: 640px) {
@@ -426,7 +427,6 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .side-inner > .ext-card, .side-inner > .moves-card,
   .side-inner > .wide { grid-column: auto; }
   .moves-card .log { height: 140px; }
-  .seg { grid-template-columns: repeat(2, 1fr); }
 }
 
 body { background: linear-gradient(145deg, var(--bg-2), var(--bg) 440px); font-size: 15px; }
@@ -441,7 +441,7 @@ body { background: linear-gradient(145deg, var(--bg-2), var(--bg) 440px); font-s
 .status { font: 700 clamp(18px, 3.1vw, 25px)/1.15 system-ui, sans-serif; color: var(--text); min-height: 0; }
 .board-status .sub { font-size: 13px; margin-top: 4px; color: var(--muted); white-space: normal; overflow-wrap: anywhere; }
 .board-frame { min-height: 0; }
-canvas { border-radius: 18px; }
+canvas { border-radius: 18px; touch-action: manipulation; }
 .board-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .board-tools button { border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--text); padding: 7px 10px; min-height: 44px; font: 600 12px/1.2 system-ui, sans-serif; cursor: pointer; }
 .board-tools button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-ink); background: var(--accent); }

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const debug = process.env.QUORIDOR_CDP_URL || "http://127.0.0.1:9225";
 const calls = [], errors = [], delayed = [];
-const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".json": "application/json" };
+const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".json": "application/json", ".webp": "image/webp" };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function touchDrag(page, start, end) {
   const touch = (x, y) => ({ x, y, radiusX: 6, radiusY: 6, force: 1, id: 1 });
@@ -28,6 +28,7 @@ const site = http.createServer(async (req, res) => {
 });
 const origin = await listen(site);
 const api = http.createServer(async (req, res) => {
+  if (req.method === "OPTIONS" && req.url.startsWith("/blocked/")) return res.writeHead(403).end();
   res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access");
@@ -103,6 +104,15 @@ try {
   await page.wait(() => !!window.quoridor);
   assert.deepEqual(await page.run(() => ({ isolated: crossOriginIsolated, sharedMemory: typeof SharedArrayBuffer !== "undefined" })), { isolated: true, sharedMemory: true });
   console.log("PASS: static hosting starts with cross-origin isolation and shared memory, without server header configuration");
+  const modes = await page.run(() => {
+    const buttons = [...document.querySelectorAll("#seg button")], rects = buttons.map((button) => button.getBoundingClientRect());
+    return { order: buttons.map((button) => button.dataset.mode), columns: getComputedStyle(document.querySelector("#seg")).gridTemplateColumns.split(" ").length, rows: rects.map((rect) => Math.round(rect.top)) };
+  });
+  assert.deepEqual(modes.order, ["ai", "hotseat", "room", "ai_ai", "replay"]);
+  assert.equal(modes.columns, 6);
+  assert.equal(modes.rows[0], modes.rows[1]); assert.equal(modes.rows[1], modes.rows[2]);
+  assert.equal(modes.rows[3], modes.rows[4]); assert.notEqual(modes.rows[2], modes.rows[3]);
+  console.log("PASS: primary modes lead, Room is prominent, and all five mode buttons fill two tidy rows");
   const fresh = async (settings = {}, profiles = [{}, profile()]) => {
     releaseReplies(); calls.length = 0;
     await page.run((settings, profiles) => {
@@ -172,6 +182,22 @@ try {
     if (protocol === "responses") assert.equal(calls[0].body.store, false);
   }
   console.log("PASS: automatic moves work with Chat Completions, Responses and Anthropic Messages");
+  await fresh({}, [{}, profile(true)]);
+  await page.run(() => { document.querySelector("#btnExtToggle").click(); document.querySelector("#extEffort").value = "high"; document.querySelector("#btnExtSave").click(); });
+  await humanMove(); await page.wait(() => quoridor.state().ply === 2);
+  assert.equal(calls.at(-1).body.reasoning_effort, "high");
+  await page.run(() => { window.quoridor = null; });
+  await page.send("Page.reload"); await page.wait(() => !!window.quoridor);
+  assert.equal(await page.run(() => document.querySelector("#extEffort").value), "high");
+  console.log("PASS: selected Effort is included in the request and persists across a reload");
+
+  await fresh({}, [{}, { ...profile(true), baseUrl: apiOrigin + "/blocked/v1" }]);
+  await humanMove();
+  await page.wait(() => document.querySelector("#status").textContent === "External AI request failed");
+  assert.equal(await ply(), 1); assert.equal(moveCount(), 0);
+  assert.equal(await page.run(() => window.__workerStarts), 0);
+  assert.match(await page.run(() => document.querySelector("#hint").textContent), /CORS.*preflight/);
+  console.log("PASS: a real browser preflight rejection sends no API POST and leaves the board alone");
 
   await fresh({}, [{}, profile(true, "failed-model")]);
   await humanMove();
@@ -182,10 +208,13 @@ try {
   assert.equal(await page.run(() => window.__workerStarts), 0, "failed external move must not start local Alpha-beta");
   assert.equal(await page.run(() => document.querySelector("#btnRetryAI").hidden), false);
   assert.match(await page.run(() => document.querySelector("#hint").textContent), /HTTP 503/);
+  await page.run(() => document.querySelector("#btnRetryAI").click());
+  await page.wait(() => document.querySelector("#status").textContent === "External AI request failed" && !document.querySelector("#btnRetryAI").hidden);
+  assert.equal(await ply(), 1); assert.equal(moveCount(), 2);
   await save(true, "mock-model");
   await page.wait(() => quoridor.state().ply === 2);
-  assert.equal(moveCount(), 2);
-  console.log("PASS: external move failures never trigger a local move; the turn can be retried explicitly");
+  assert.equal(moveCount(), 3);
+  console.log("PASS: external move failures leave the board unchanged and Retry calls the external endpoint again");
 
   await fresh({}, [{}, profile(true)]);
   await page.run(() => { quoridor.move(67); setTimeout(() => { document.querySelector("#extAllowMoves").checked = false; document.querySelector("#btnExtSave").click(); }, 10); });
@@ -290,6 +319,23 @@ try {
   await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await page.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
   await page.run(() => quoridor.setMode("hotseat"));
+  await page.run(() => {
+    const canvas = document.querySelector("#board");
+    window.__canvasSizeChanges = 0;
+    new MutationObserver((records) => { window.__canvasSizeChanges += records.length; })
+      .observe(canvas, { attributes: true, attributeFilter: ["width", "height", "style"] });
+  });
+  const beforeShortViewport = await page.run(() => ({ width: document.querySelector("#board").width,
+    height: document.querySelector("#board").height, cssWidth: document.querySelector("#board").style.width,
+    cssHeight: document.querySelector("#board").style.height }));
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 500, deviceScaleFactor: 2, mobile: true });
+  await sleep(100);
+  const afterShortViewport = await page.run(() => ({ width: document.querySelector("#board").width,
+    height: document.querySelector("#board").height, cssWidth: document.querySelector("#board").style.width,
+    cssHeight: document.querySelector("#board").style.height, mutations: window.__canvasSizeChanges }));
+  assert.deepEqual(afterShortViewport, { ...beforeShortViewport, mutations: 0 }, JSON.stringify({ beforeShortViewport, afterShortViewport }));
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await sleep(80);
   const mobilePoints = await page.run(() => {
     const button = document.querySelector('[data-tool="H"]').getBoundingClientRect();
     const vertical = document.querySelector('[data-tool="V"]').getBoundingClientRect();
@@ -312,8 +358,10 @@ try {
   assert.equal(await page.run(() => quoridor.state().last), 145 + 4 * 8 + 1);
   const phone = await page.run(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth,
     touchAction: getComputedStyle(document.querySelector('[data-tool="H"]')).touchAction,
+    boardTouchAction: getComputedStyle(document.querySelector("#board")).touchAction,
     target: document.querySelector('[data-tool="H"]').getBoundingClientRect().height }));
-  assert.ok(phone.scroll <= phone.width, JSON.stringify(phone)); assert.equal(phone.touchAction, "none"); assert.ok(phone.target >= 44);
+  assert.ok(phone.scroll <= phone.width, JSON.stringify(phone)); assert.equal(phone.touchAction, "none");
+  assert.equal(phone.boardTouchAction, "manipulation"); assert.ok(phone.target >= 44);
   console.log("PASS: real mobile touch drag places both orientations; overlap/outside releases cancel; touch targets/layout are valid");
   await page.send("Emulation.setTouchEmulationEnabled", { enabled: false });
 
@@ -327,6 +375,24 @@ try {
   assert.equal(calls.length, 0); assert.equal(await page.run(() => document.querySelector("#btnExternalSetup").hidden), true);
   assert.deepEqual(errors, []);
   console.log("PASS: compact help fits mobile/desktop, local engines work, and no browser exceptions occurred");
+  for (const width of [1200, 390]) {
+    await page.send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 500 });
+    await page.send("Page.navigate", { url: origin + "/quoridor/guide.html" });
+    await page.wait(() => document.readyState === "complete" && !!document.querySelector(".guide-examples"));
+    const guide = await page.run(async () => {
+      const figures = [...document.querySelectorAll(".guide-figure img")];
+      for (const image of figures) image.loading = "eager";
+      await Promise.all(figures.map((image) => image.decode()));
+      const firstExamples = [...document.querySelector(".guide-examples").children].map((element) => Math.round(element.getBoundingClientRect().top));
+      return { sizes: figures.map((image) => [image.naturalWidth, image.naturalHeight, Number(image.getAttribute("width")), Number(image.getAttribute("height"))]), firstExamples,
+        width: innerWidth, scroll: document.documentElement.scrollWidth };
+    });
+    assert.equal(guide.sizes.length, 5);
+    for (const [width, height, specifiedWidth, specifiedHeight] of guide.sizes) assert.deepEqual([width, height], [specifiedWidth, specifiedHeight]);
+    assert.equal(guide.firstExamples[0] === guide.firstExamples[1], width >= 560);
+    assert.ok(guide.scroll <= guide.width);
+  }
+  console.log("PASS: all five Guide screenshots load at their stated sizes and fit desktop and mobile");
 } finally {
   releaseReplies(); page?.ws.close();
   if (browserContextId) await browser.send("Target.disposeBrowserContext", { browserContextId });
