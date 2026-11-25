@@ -515,6 +515,138 @@ try {
   await page.wait(() => document.querySelector("#status").textContent === "Waiting for an opponent");
   console.log("PASS: stalled room creation times out, releases signalling listeners, and can be retried");
 
+  const redWin = [67, 81, 58, 5, 49, 6, 40, 7, 31, 8, 22, 17, 13, 26, 4];
+  const blueWin = [75, 13, 74, 22, 73, 31, 72, 40, 63, 49, 54, 58, 45, 67, 36, 76];
+  const result = () => page.run(() => {
+    const get = (id) => document.getElementById(id);
+    const dialog = get("resultDialog");
+    return {
+      open: dialog.open, outcome: dialog.dataset.outcome, title: get("resultTitle").textContent,
+      players: get("resultMatchup").textContent, status: get("status").textContent, winner: get("resultWinner").textContent,
+      moves: Number(get("resultMoves").textContent), walls: Number(get("resultWalls").textContent),
+      newGame: get("btnResultNew").textContent, canRestart: !get("btnResultNew").disabled,
+      canReview: !get("btnResultReview").hidden, canUndo: !get("btnResultUndo").hidden,
+      viewResult: !get("btnResult").hidden, canFlip: !get("btnFlip").disabled, autoplay: !get("btnPlay").hidden,
+    };
+  });
+  await page.run((line) => {
+    const channel = new roomChannel.constructor();
+    window.hostResultChannel = channel;
+    roomPeer.emit("connection", channel);
+    line.forEach((a, ply) => {
+      if (ply % 2 === 0) { if (!quoridor.move(a)) throw Error("Invalid host move " + a); }
+      else channel.emit("data", { t: "move", a, ply });
+    });
+  }, redWin);
+  const hostWin = await result();
+  assert.equal(hostWin.title, "You won!");
+  assert.equal(hostWin.open, true);
+  assert.equal(hostWin.canUndo, false);
+  assert.equal(hostWin.canReview, false);
+  await page.run(() => {
+    document.querySelector("#btnResultNew").click();
+    if (hostResultChannel.sent.at(-1)?.moves?.length !== 0) throw Error("New room game was not synchronized");
+    document.querySelector("#joinCode").value = "ABCD";
+    document.querySelector("#btnJoin").click();
+  });
+  await page.wait(() => document.querySelector("#roomMsg").textContent === "Connecting to the host." && roomPeer.open);
+  await page.run((line) => roomChannel.emit("data", { t: "sync", moves: line }), redWin);
+  const guestLoss = await result();
+  assert.equal(guestLoss.outcome, "defeat");
+  assert.equal(guestLoss.newGame, "Request rematch");
+  await page.run((line) => {
+    document.querySelector("#btnResultNew").click();
+    if (roomChannel.sent.at(-1)?.t !== "askRestart") throw Error("Guest rematch was not requested");
+    roomChannel.emit("data", { t: "sync", moves: line });
+  }, redWin);
+  assert.equal((await result()).open, false, "same result should not reopen on resync");
+  await page.run(() => roomChannel.close());
+  const disconnected = await result();
+  assert.equal(disconnected.status, "You lost this round");
+  assert.equal(disconnected.canRestart, false);
+  assert.equal(disconnected.viewResult, true);
+  console.log("PASS: Room results use the player's seat, synchronize rematches, and survive resync and disconnection");
+
+  const finishLine = (line) => page.run((moves) => {
+    for (const a of moves) if (!quoridor.move(a)) throw Error("Invalid test move " + a);
+  }, line);
+  await fresh({ mode: "ai", humanSide: 0, engineBlue: "ab:4:350", saveGames: false });
+  await finishLine(redWin);
+  const win = await result();
+  assert.equal(win.open, true);
+  assert.equal(win.outcome, "victory");
+  assert.equal(win.title, "You won!");
+  assert.equal(win.winner, "Red");
+  assert.equal(win.moves, redWin.length);
+  assert.equal(win.walls, 1);
+  assert.equal(win.canUndo, true);
+  await page.run(() => {
+    document.querySelector("#btnResultBoard").click();
+    document.querySelector("#btnFlip").click();
+    const engine = document.querySelector("#engineBlue");
+    engine.value = "sigma:64";
+    engine.dispatchEvent(new Event("change", { bubbles: true }));
+    document.querySelector("#btnResult").click();
+  });
+  const stable = await result();
+  assert.equal(stable.outcome, "victory");
+  assert.equal(stable.canFlip, false);
+  assert.equal(stable.players, win.players);
+  await page.run(() => document.querySelector("#btnResultUndo").click());
+  assert.equal(await ply(), redWin.length - 1);
+  assert.equal((await result()).viewResult, false);
+  assert.equal((await result()).canFlip, true);
+  await finishLine(redWin.slice(-1));
+  assert.equal((await result()).open, true, "undo and finish again should display the result");
+
+  await fresh({ mode: "ai", humanSide: 1, opponentSeat: 0, saveGames: false });
+  await finishLine(blueWin);
+  assert.equal((await result()).outcome, "victory");
+  assert.equal((await result()).winner, "Blue");
+  await page.run(() => document.querySelector("#btnResultNew").click());
+  await finishLine(redWin);
+  assert.equal((await result()).outcome, "defeat");
+  console.log("PASS: vs AI reports both colours from the human perspective and preserves result details until undo or restart");
+
+  await fresh({ mode: "hotseat", saveGames: false });
+  await finishLine(blueWin);
+  const localResult = await result();
+  assert.equal(localResult.title, "Blue wins!");
+  assert.equal(localResult.players, "Player 1 vs Player 2");
+  assert.equal(localResult.canUndo, true);
+  await page.run(() => document.querySelector("#btnResultReview").click());
+  assert.deepEqual(await page.run(() => ({
+    mode: quoridor.mode, dialogOpen: document.querySelector("#resultDialog").open,
+    status: document.querySelector("#status").textContent, canContinue: !document.querySelector("#btnContinue").disabled,
+  })), { mode: "replay", dialogOpen: false, status: "Blue wins · move 16", canContinue: false });
+  await page.run(() => {
+    document.querySelector("#btnPrev").click();
+    if (document.querySelector("#btnContinue").disabled) throw Error("Earlier replay position cannot continue");
+    document.querySelector("#btnNext").click();
+  });
+  assert.equal((await result()).open, false);
+  assert.equal((await result()).viewResult, false);
+  console.log("PASS: 2 players can review a completed game without saving, and Replay keeps the result inline");
+
+  await fresh({ mode: "ai_ai", engineBlue: "ab:4:350", saveGames: false, speed: 2.5 });
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 320, height: 568, deviceScaleFactor: 2, mobile: true });
+  await finishLine(redWin);
+  const aiResult = await result();
+  assert.equal(aiResult.title, "Red wins!");
+  assert.equal(aiResult.canUndo, false);
+  assert.equal(aiResult.canReview, true);
+  assert.equal(aiResult.autoplay, false);
+  await sleep(300);
+  assert.equal(await page.run(() => {
+    const rect = document.querySelector("#resultDialog").getBoundingClientRect();
+    return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+  }), true);
+  await page.run(() => document.querySelector("#btnResultNew").click());
+  assert.equal(await ply(), 0);
+  assert.equal((await result()).autoplay, true);
+  assert.equal(await page.run(() => document.querySelector("#btnPlay").textContent), "Pause");
+  console.log("PASS: AI vs AI stops on the result, fits a small phone, and can restart autoplay");
+
   await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
   await page.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
   await page.run(() => quoridor.setMode("hotseat"));

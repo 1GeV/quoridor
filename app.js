@@ -316,6 +316,7 @@ let running = false;
 let savedLines = new Set();
 let selectedSavedId = null;
 let presentedResult = null;
+let finishedPlayers = null;
 
 let replayStates = null;
 let replayMoves = [];
@@ -339,6 +340,7 @@ let peer = null, conn = null, roomCode = null, roomRole = null, roomReady = fals
 let mySide = 0;
 
 function playerName(side) {
+  if (state?.terminal && mode !== "replay" && finishedPlayers) return finishedPlayers[side].name;
   if (mode === "replay" && replayRecord) return side === 0 ? (replayRecord.p0 || "Red") : (replayRecord.p1 || "Blue");
   if (mode === "room") return side === mySide ? "You" : "Opponent";
   if (mode === "hotseat") return side === 0 ? "Player 1" : "Player 2";
@@ -346,16 +348,11 @@ function playerName(side) {
   return engineName(side);
 }
 function playerTag(side) {
+  if (state?.terminal && mode !== "replay" && finishedPlayers) return finishedPlayers[side].tag;
   const base = side === 0 ? "bottom · reach the top" : "top · reach the bottom";
   if (mode === "ai" && side !== humanSide) return `${base} · ${engineShort(side)}`;
   if (mode === "ai_ai") return `${base} · ${engineShort(side)}`;
   return base;
-}
-function savePlayerName(side) {
-  if (mode === "replay" && replayRecord) return side === 0 ? (replayRecord.p0 || "Red") : (replayRecord.p1 || "Blue");
-  if (mode === "ai") return side === humanSide ? "You" : engineName(side);
-  if (mode === "ai_ai") return engineName(side);
-  return side === 0 ? "Player 1" : "Player 2";
 }
 
 // ---------------------------------------------------------------- geometry / drawing
@@ -620,6 +617,7 @@ function updateResult() {
   if (!liveResult) {
     closeResult();
     presentedResult = null;
+    finishedPlayers = null;
   }
   if (!finished) return;
 
@@ -660,7 +658,7 @@ function presentResult() {
 }
 function reviewFinishedGame() {
   if (!state.terminal || mode === "room" || mode === "replay") return;
-  const record = { moves: moves.map((move) => move.a), p0: savePlayerName(0), p1: savePlayerName(1) };
+  const record = { moves: moves.map((move) => move.a), p0: playerName(0), p1: playerName(1) };
   closeResult();
   // Works even when automatic saving is off or browser storage is unavailable.
   loadRecord(record, true);
@@ -736,13 +734,14 @@ function updateButtons() {
   const canCancelMove = externalMoveRunning();
   ui.btnRetryAI.textContent = canCancelMove ? "Cancel AI move" : "Retry AI move";
   ui.btnRetryAI.hidden = !canCancelMove && (!aiRetryAvailable || state.terminal || (mode === "ai" && state.turn === humanSide));
-  ui.btnPlay.hidden = mode !== "ai_ai";
+  ui.btnPlay.hidden = mode !== "ai_ai" || state.terminal;
   ui.btnPlay.textContent = mode === "ai_ai" && running ? "Pause" : "Play";
   ui.btnUndo.hidden = mode !== "ai" && mode !== "hotseat";
   ui.btnUndo.disabled = undoIndex() < 0;
   ui.btnUndo.title = mode === "ai" ? "Return to your previous turn" : "Take back one move";
   ui.btnFlip.hidden = mode !== "ai" && mode !== "ai_ai";
-  ui.btnFlip.title = mode === "ai" ? "Switch colours from the current position" : "Swap engines and start a new game";
+  ui.btnFlip.disabled = mode === "ai" && state.terminal;
+  ui.btnFlip.title = mode === "ai" ? (state.terminal ? "Undo or start a new game to switch colours" : "Switch colours from the current position") : "Swap engines and start a new game";
   ui.btnNew.disabled = mode === "room" && !roomReady;
   ui.btnNew.textContent = mode === "room" && roomRole === "guest" ? "Request rematch" : "New game";
   const total = replayStates ? replayStates.length - 1 : 0;
@@ -1578,6 +1577,9 @@ function finish() {
   clearAiTimer();
   running = false;
   busy = false;
+  if (mode === "ai" || mode === "ai_ai") {
+    finishedPlayers ??= [0, 1].map((side) => ({ name: playerName(side), tag: playerTag(side) }));
+  }
   if (mode !== "replay" && mode !== "room") saveFinishedGame();
   render();
   presentResult();
@@ -1661,6 +1663,7 @@ function undo() {
 }
 function flipSides() {
   if (mode === "ai") {
+    if (state.terminal) return;
     cancelAi();
     humanSide = 1 - humanSide;
     persistPrefs();
@@ -1680,7 +1683,7 @@ function saveFinishedGame() {
   const rec = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     date: new Date().toISOString(),
-    mode, p0: savePlayerName(0), p1: savePlayerName(1),
+    mode, p0: playerName(0), p1: playerName(1),
     winner: state.winner, moves: actions, plies: actions.length,
   };
   savedGames.unshift(rec);
@@ -1816,7 +1819,7 @@ function exportPosition() {
   if (mode === "room") return;
   const position = {
     format: GAME_FILE, version: 1,
-    p0: savePlayerName(0), p1: savePlayerName(1),
+    p0: playerName(0), p1: playerName(1),
     moves: moves.map((move) => move.a),
   };
   const url = URL.createObjectURL(new Blob([JSON.stringify(position, null, 2)], { type: "application/json" }));
@@ -1905,7 +1908,7 @@ function waitOpen(p) {
 function watchPeer(p) {
   p.on("error", (error) => {
     if (peer !== p) return;
-    if (roomRole === "guest" && !roomReady) {
+    if (roomRole === "guest" && !roomReady && !state.terminal) {
       status("Could not join the room", "Check the code or try again.");
     }
     roomMsg(`Room connection: ${error.message || error.type || error}`);
@@ -1979,8 +1982,9 @@ function bindConn(channel) {
     roomReady = false;
     channel.close();
     render();
-    status("Room disconnected", roomRole === "host" ? `Opponent can rejoin room ${roomCode}.` : `Join room ${roomCode} again to resume.`);
-    roomMsg(text);
+    const reconnect = roomRole === "host" ? `Opponent can rejoin room ${roomCode}.` : `Join room ${roomCode} again to resume.`;
+    if (!state.terminal) status("Room disconnected", reconnect);
+    roomMsg(`${text} ${reconnect}`);
   };
   roomTimer = setTimeout(() => fail("The peer connection timed out."), ROOM_TIMEOUT);
   const onOpen = () => {
@@ -2180,8 +2184,7 @@ ui.btnNew.addEventListener("click", () => {
   newGame();
 });
 ui.btnPlay.addEventListener("click", () => {
-  if (mode !== "ai_ai") { status("Switch to AI vs AI to autoplay", ""); return; }
-  if (state.terminal) { newGame(); return; }
+  if (mode !== "ai_ai" || state.terminal) return;
   running = !running;
   updateButtons();
   if (running) scheduleAi(speed * 1000);
