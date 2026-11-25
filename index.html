@@ -37,7 +37,7 @@
   } catch (e) { document.documentElement.dataset.theme = "light"; }
 })();
 </script>
-<link rel="stylesheet" href="./board.css">
+<link rel="stylesheet" href="./board.css?v=20261126">
 </head>
 <body>
 <header class="topbar">
@@ -62,10 +62,6 @@
       <div class="result-label" id="resultLabel" hidden>Game complete</div>
       <div class="status" id="status">Loading game</div>
       <div class="sub" id="hint">Select a highlighted square to move.</div>
-      <div class="ai-loading" id="aiLoading" aria-live="off" hidden>
-        <div><span id="aiLoadingLabel">Preparing AI</span><span id="aiLoadingDetail"></span></div>
-        <progress id="aiLoadingProgress" aria-label="AI preparation progress"></progress>
-      </div>
     </div>
     <div class="game-tools" role="group" aria-label="Game controls">
       <button class="btn primary" id="btnNew">New game</button>
@@ -84,6 +80,10 @@
       <button type="button" data-tool="auto" aria-pressed="true">Move</button>
       <button type="button" data-tool="H" aria-pressed="false" title="Drag onto the board, or tap to select"><span aria-hidden="true">━</span> Horizontal wall</button>
       <button type="button" data-tool="V" aria-pressed="false" title="Drag onto the board, or tap to select"><span aria-hidden="true">┃</span> Vertical wall</button>
+    </div>
+    <div class="ai-loading" id="aiLoading" aria-live="off" hidden>
+      <div><span id="aiLoadingLabel">Preparing AI</span><span id="aiLoadingDetail"></span></div>
+      <progress id="aiLoadingProgress" aria-label="AI preparation progress"></progress>
     </div>
     <div class="wall-drag-ghost" id="wallDragGhost" aria-hidden="true" hidden></div>
   </section>

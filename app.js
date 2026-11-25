@@ -2119,7 +2119,7 @@ for (const name of ["pointercancel", "lostpointercapture"]) {
     if (wallDrag?.pointerId === event.pointerId) { cancelWallDrag(); draw(); }
   });
 }
-window.addEventListener("blur", () => { cancelWallDrag(); draw(); });
+window.addEventListener("blur", () => { if (wallDrag) { cancelWallDrag(); draw(); } });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && wallDrag) { cancelWallDrag(); draw(); }
 });
@@ -2154,7 +2154,7 @@ cvs.addEventListener("pointermove", (e) => {
   hover = h;
   if (!same) draw();
 });
-cvs.addEventListener("pointerleave", () => { if (!wallDrag) { hover = null; draw(); } });
+cvs.addEventListener("pointerleave", () => { if (hover && !wallDrag) { hover = null; draw(); } });
 cvs.addEventListener("click", (e) => {
   if (!canPlay() || busy) return;
   const h = pick(e);
