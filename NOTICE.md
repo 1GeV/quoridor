@@ -1,8 +1,6 @@
 # Third-party notices
 
-This project is MIT licensed (see `LICENSE`). It bundles or downloads the components
-below and keeps their notices intact. The bundled software components listed
-below use permissive licences; this does not grant rights to third-party trademarks.
+The original code written for this project is MIT licensed (see `LICENSE`). Bundled third-party code and model weights are not relicensed by the project; each retains the separate licence and attribution identified below. Their notices are included in the release. This does not grant rights to third-party trademarks.
 
 ## SigmaQuoridor — model weights `models/sigma_9x9.onnx`
 
@@ -34,10 +32,10 @@ below use permissive licences; this does not grant rights to third-party tradema
 
 - Source: https://github.com/peers/peerjs
 - Copyright: the PeerJS authors
-- Licence: MIT
+- Licence: MIT. See `vendor/peerjs/LICENSE` and `vendor/peerjs/licenses/` for its bundled dependencies.
 - What we use: the minified browser build, vendored so room play works without a
-  third-party CDN. The public PeerJS broker is used only to exchange WebRTC
-  connection offers; game messages travel directly between the two browsers.
+  third-party CDN. The public PeerJS broker exchanges WebRTC signalling information.
+  Game messages use a WebRTC data channel, which can use a relay when needed.
 
 ## Detour search engine
 
@@ -71,8 +69,7 @@ below use permissive licences; this does not grant rights to third-party tradema
 
 ## Fonts and other assets
 
-None bundled. The page uses the system UI font (`Segoe UI` / `system-ui`) and draws
-everything else on a canvas, so no font licences apply.
+The page uses system fonts. The favicon and social preview in `assets/` are original project artwork.
 
 ## If you fork this
 

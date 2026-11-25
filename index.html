@@ -4,7 +4,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Quoridor · Play</title>
+<meta name="description" content="Play an independent Quoridor strategy game in your browser. Face local AI, play a friend, or review games. No account required; optional external AI may cost.">
+<link rel="canonical" href="https://1gev.github.io/quoridor/">
+<link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="./assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="./assets/apple-touch-icon.png">
+<meta name="theme-color" content="#245c49">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Quoridor · independent project">
+<meta property="og:title" content="Quoridor Strategy Game — Free Browser Play">
+<meta property="og:description" content="An independent, unofficial browser implementation. Play local AI, pass-and-play, rooms and replays. Optional external AI may involve provider charges.">
+<meta property="og:url" content="https://1gev.github.io/quoridor/">
+<meta property="og:image" content="https://1gev.github.io/quoridor/assets/social-preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Original Quoridor-style board illustration with pawns and walls beside the words Independent browser game">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Quoridor Strategy Game — Free Browser Play">
+<meta name="twitter:description" content="Play an independent browser strategy game with local AI, pass-and-play and rooms.">
+<meta name="twitter:image" content="https://1gev.github.io/quoridor/assets/social-preview.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"Quoridor Strategy Game","alternateName":"Independent unofficial Quoridor browser implementation","url":"https://1gev.github.io/quoridor/","applicationCategory":"GameApplication","operatingSystem":"Any modern web browser","isAccessibleForFree":true,"description":"An independent browser implementation of the Quoridor strategy game with local AI, pass-and-play, rooms and replay. Optional external AI may involve provider charges."}
+</script>
+<title>Quoridor Strategy Game — Free Browser Play</title>
 <script>
 (function () {
   try {
@@ -25,6 +47,7 @@
     </div>
   </div>
   <div class="top-actions">
+    <a class="btn" href="./guide.html">Guide</a>
     <div class="theme-switch" id="themeSwitch" role="group" aria-label="theme">
       <button data-theme="auto" class="on" title="Follow system">Auto</button>
       <button data-theme="dark" title="Dark">Dark</button>
@@ -50,6 +73,7 @@
       <button class="btn" id="btnUndo">Undo</button>
       <button class="btn" id="btnFlip">Flip sides</button>
       <button class="btn" id="btnExternalSetup" hidden>External AI settings</button>
+      <button class="btn" id="btnRetryAI" hidden>Retry AI move</button>
       <button class="btn" id="btnResult" hidden>View result</button>
     </div>
 
@@ -116,9 +140,9 @@
         <div class="seg" id="seg">
           <button data-mode="ai" class="on">vs AI</button>
           <button data-mode="hotseat">2 players</button>
+          <button data-mode="room">Room</button>
           <button data-mode="ai_ai">AI vs AI</button>
           <button data-mode="replay">Replay</button>
-          <button data-mode="room">Room</button>
         </div>
         <label class="check" id="bottomLabel"><input type="checkbox" id="viewBottom" checked> I always play from the bottom</label>
         <div class="room" id="roomPanel">
@@ -152,6 +176,14 @@
           <label class="check" style="margin-top:0"><input type="checkbox" id="extFullEndpoint" aria-describedby="extEndpointHelp"> Custom endpoint (use URL as entered)</label>
           <div class="field"><label for="extKey">API KEY</label><input id="extKey" type="password" autocomplete="off" spellcheck="false" placeholder="API key, if required" aria-describedby="extKeyHelp"></div>
           <div class="field"><label for="extModel">MODEL</label><input id="extModel" spellcheck="false" placeholder="model-name"></div>
+          <div class="field"><label for="extEffort">EFFORT</label><select id="extEffort">
+            <option value="auto">Provider default</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="xhigh">Extra high</option>
+            <option value="max">Max</option>
+          </select></div>
           <label class="check" style="margin-top:0"><input type="checkbox" id="extRemember"> Remember key (stored unencrypted)</label>
           <label class="check" style="margin-top:0"><input type="checkbox" id="extAllowMoves" aria-describedby="extMovesHelp"> Allow automatic AI move requests</label>
           <label class="check" style="margin-top:0"><input type="checkbox" id="extImage"> Allow board images</label>
@@ -165,6 +197,7 @@
             <summary>Connection help &amp; privacy</summary>
             <p id="extEndpointHelp">Base URLs such as https://api.example.com/v1 work with Custom endpoint unchecked. Standard full endpoint paths are detected automatically. Check the option only to use a custom URL without adding a path.</p>
             <p id="extKeyHelp">Leave the key blank only if your endpoint requires no key. A local model server can use an address such as http://localhost:1234/v1 and its loaded model ID. It must allow this site's origin through CORS; your browser may also ask for permission to connect. Localhost refers to the device running this browser.</p>
+            <p>Effort applies to moves, chat and Test. Supported levels depend on your model and provider. Extra high and Max can take longer and cost more.</p>
             <p id="extMovesHelp">Without move permission, this AI seat waits. Enable the option and Save &amp; apply to continue; in AI vs AI, also press Play. Test and chat are separate requests.</p>
             <p>Requests go directly to your endpoint with your key and board context. Chat adds your question and recent conversation. Identical move requests may reuse a result in this tab; provider prompt caching depends on your provider. <a href="./privacy.html#external-ai">Privacy details</a></p>
           </details>
@@ -219,10 +252,10 @@
       </section>
 
       <div class="foot">
-        <a href="./privacy.html">Privacy &amp; data</a> · <a href="./terms.html">Terms</a> · <a href="./NOTICE.md">Third-party notices</a> · <a href="https://github.com/1GeV/quoridor" target="_blank" rel="noopener noreferrer">Source</a><br>
+        <a href="./guide.html">Game Guide</a> · <a href="./privacy.html">Privacy &amp; data</a> · <a href="./terms.html">Terms</a> · <a href="./NOTICE.md">Third-party notices</a> · <a href="https://github.com/1GeV/quoridor" target="_blank" rel="noopener noreferrer">Source</a><br>
         <button class="link" type="button" id="btnClearLocal">Clear this app's local data</button><br>
         Quoridor is a trademark of Gigamic; this is an unaffiliated rules implementation.<br>
-        AI: <a href="https://github.com/bartolomeo3000/SigmaQuoridor" target="_blank" rel="noopener">SigmaQuoridor</a> and <a href="https://github.com/Plaaasma/Claustrophobia" target="_blank" rel="noopener">Claustrophobia</a> weights. Search by <a href="https://github.com/EmyoTyyy/detour" target="_blank" rel="noopener">Detour</a> and inference by <a href="https://onnxruntime.ai/" target="_blank" rel="noopener">ONNX Runtime Web</a>. Rooms by <a href="https://peerjs.com/" target="_blank" rel="noopener">PeerJS</a>. This page is MIT licensed.
+        AI: <a href="https://github.com/bartolomeo3000/SigmaQuoridor" target="_blank" rel="noopener">SigmaQuoridor</a> and <a href="https://github.com/Plaaasma/Claustrophobia" target="_blank" rel="noopener">Claustrophobia</a> weights. Search by <a href="https://github.com/EmyoTyyy/detour" target="_blank" rel="noopener">Detour</a> and inference by <a href="https://onnxruntime.ai/" target="_blank" rel="noopener">ONNX Runtime Web</a>. Rooms by <a href="https://peerjs.com/" target="_blank" rel="noopener">PeerJS</a>. Project code is MIT licensed.
       </div>
     </div>
   </aside>

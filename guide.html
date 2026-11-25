@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Complete guide to the independent Quoridor browser game: rules, moves, walls, AI, rooms, saved games and external AI privacy.">
+  <link rel="canonical" href="https://1gev.github.io/quoridor/guide.html">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Game Guide · Quoridor">
+  <meta property="og:description" content="Rules, board controls, local AI, rooms, replay and external AI privacy for this independent browser game.">
+  <meta property="og:url" content="https://1gev.github.io/quoridor/guide.html">
+  <meta property="og:image" content="https://1gev.github.io/quoridor/assets/social-preview.png">
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+  <title>Game Guide · Quoridor</title>
+  <link rel="stylesheet" href="./legal.css">
+</head>
+<body><main>
+  <nav aria-label="Navigation"><a href="./">Back to game</a><a href="./privacy.html">Privacy</a><a href="./terms.html">Terms</a></nav>
+  <h1>Game Guide</h1>
+  <p class="muted">How to play, configure the engines, use rooms and manage your data.</p>
+  <p class="notice">This is an independent, unofficial browser implementation of the Quoridor board game. Built-in play works without an account, API key or paid AI service.</p>
+  <nav class="guide-index" aria-label="On this page"><a href="#quick-start">Quick start</a><a href="#rules">Rules</a><a href="#controls">Board controls</a><a href="#modes">Modes and records</a><a href="#engines">AI engines and speed</a><a href="#external-ai">External AI</a><a href="#privacy">Privacy and attribution</a></nav>
+
+  <h2 id="quick-start">Quick start</h2>
+  <ol>
+    <li>Choose <strong>vs AI</strong> to play against an engine, or <strong>2 players</strong> to share one device.</li>
+    <li>Tap one of the highlighted squares to move your pawn. You can also choose a wall control and tap a legal gap.</li>
+    <li>Reach the opposite edge before your opponent. A wall can slow the other player, but must leave both players at least one route to their goal.</li>
+  </ol>
+
+  <h2 id="rules">Rules</h2>
+  <ul>
+    <li>The board has 9 × 9 squares. Each player starts with 10 walls and a pawn on the middle square of their starting edge.</li>
+    <li>On each turn, make exactly one action: move your pawn or place one wall.</li>
+    <li>A normal pawn move is one square orthogonally (not diagonally). If pawns meet face-to-face, jump over the opponent when the square behind is free. If a wall blocks that straight jump, move diagonally to a free square beside the opponent.</li>
+    <li>A wall spans two square-gaps. Horizontal and vertical controls set its orientation. Walls cannot overlap or cross, and cannot seal off every route to either goal.</li>
+    <li>The first pawn to reach the opposite edge wins. This app does not declare a draw merely because a position repeats or a move counter grows.</li>
+  </ul>
+
+  <h2 id="controls">Board controls</h2>
+  <div class="guide-examples">
+    <section>
+      <h3>Move a pawn</h3>
+      <p>With <strong>Move</strong> selected, tap or click a marked square. The coordinates stay attached to their squares when you flip the view.</p>
+      <figure class="guide-figure">
+        <img src="./assets/guide/move.webp" width="1120" height="1144" loading="lazy" decoding="async" alt="Starting board with the Move button active and three green dots around Red">
+        <figcaption>Red can start by choosing e8, d9 or f9.</figcaption>
+      </figure>
+    </section>
+    <section>
+      <h3>Place a wall</h3>
+      <p>Choose a wall orientation, then tap or click the centre of a legal gap. You can also drag either wall control onto the board. Release outside the board to cancel.</p>
+      <figure class="guide-figure">
+        <img src="./assets/guide/walls.webp" width="1120" height="1144" loading="lazy" decoding="async" alt="Horizontal wall tool selected, previewing a wall just below the Blue pawn">
+        <figcaption>The green bar previews a horizontal wall spanning two gaps.</figcaption>
+      </figure>
+    </section>
+  </div>
+  <h3>Undo and switch sides</h3>
+  <p>In <strong>vs AI</strong>, Undo returns to your previous turn (removing the AI reply and your last move when both have happened). In <strong>2 players</strong>, it takes back one move. <strong>Flip sides</strong> switches the human/AI colours without restarting the current position. The “I always play from the bottom” option flips the view for readability; it does not change the rules or saved coordinates.</p>
+
+  <h2 id="modes">Game modes and records</h2>
+  <ul>
+    <li><strong>vs AI:</strong> Choose an engine in the engine selector. Local engines run in your browser. First use may download the selected model and runtime; once cached, the browser can reuse them. The loading indicator shows download progress.</li>
+    <li><strong>2 players:</strong> Take turns on the same device.</li>
+    <li><strong>Room:</strong> Create a room or join with a code. The host plays Red and the guest plays Blue. Rooms exchange game actions. Share your code with someone you trust.</li>
+    <li><strong>AI vs AI:</strong> Choose an engine for each side, press Play, and adjust the autoplay delay with the speed control. Pausing stops the next turn from starting.</li>
+    <li><strong>Replay:</strong> Review saved or imported games, step through moves, change replay speed, or continue a non-terminal position.</li>
+  </ul>
+  <div class="guide-examples">
+    <figure class="guide-figure">
+        <img src="./assets/guide/room.webp" width="714" height="906" loading="lazy" decoding="async" alt="Mode selector with Room active, a Create room button and a room code field beside Join">
+        <figcaption>Select Room to create a match or enter the host’s code.</figcaption>
+      </figure>
+    <figure class="guide-figure">
+        <img src="./assets/guide/replay.webp" width="714" height="512" loading="lazy" decoding="async" alt="Replay card showing move 7 of 8, step buttons, autoplay speed and Play from here">
+        <figcaption>Move the replay slider to a position, then use Play from here to continue.</figcaption>
+      </figure>
+  </div>
+  <p>Use Undo, the replay controls, or the game log to review a match. Export a position/game as JSON to keep a copy or share it. Imported game files are checked against legal moves. Saved games are stored only in this browser and can be switched off or deleted.</p>
+
+  <h2 id="engines">AI engines and speed</h2>
+  <p><strong>Claustrophobia + Alpha-beta</strong> uses a public neural-network policy to order an independent local search. <strong>Sigma</strong> uses a policy/value network with Monte Carlo Tree Search. <strong>Alpha-beta</strong> uses a local search without neural-network inference. Engine names and time/simulation presets are shown in the selector; deeper settings usually take longer. Performance depends on the device and browser.</p>
+  <p>The built-in engines run locally after their files have loaded; they do not send your board position to an AI provider. Initial downloads can be tens of megabytes. Keep the page open while the first download and model initialization finish; later visits can reuse the browser cache, subject to browser eviction.</p>
+
+  <h2 id="external-ai">Optional external AI</h2>
+  <p>You do not need external AI to play. To use it, select <strong>External AI</strong>, enter an endpoint and model, choose its API format, then explicitly enable and save permission for automatic move requests. The supported formats are Chat Completions, Responses and Anthropic Messages. A local model server can also be used if the browser can reach it and its CORS/local-network settings allow the request.</p>
+  <ul>
+    <li>Requests go directly from your browser to the endpoint you configure. If the browser reports a CORS error, check that your provider allows this site’s origin and accepts a preflight OPTIONS request before checking the API key.</li>
+    <li>Move requests include the board and legal actions. Chat requests include your question, the current board and a limited recent conversation history. Chat and move requests are separate; they are not one persistent provider session.</li>
+    <li>The provider may charge for requests, retain data or apply its own privacy and age rules. Check its terms before use. No key is needed for a service that does not require authentication.</li>
+    <li>If a move request fails or returns an illegal move, the board waits on the same turn. Use <strong>Retry AI move</strong> to try again.</li>
+  </ul>
+  <p><strong>Effort</strong> sets the reasoning level for moves, chat and Test. Choose <strong>Provider default</strong> to let the service choose. Supported levels depend on the model and provider. Extra high and Max allow longer requests and may increase provider charges.</p>
+  <div class="guide-example-compact">
+    <figure class="guide-figure">
+        <img src="./assets/guide/external-ai.webp" width="650" height="1208" loading="lazy" decoding="async" alt="External AI form with a placeholder URL, an empty API key field, Provider default effort and automatic moves unchecked">
+        <figcaption>Example settings. Add your provider URL, API format and model, then save the profile.</figcaption>
+      </figure>
+  </div>
+  <p>See the <a href="./privacy.html#external-ai">privacy notice</a> for details about API keys, requests and browser storage.</p>
+
+  <h2 id="privacy">Privacy, attribution and support</h2>
+  <p>Game preferences and saved moves remain in browser storage. Built-in AI models are cached locally. Optional external AI and rooms contact third-party providers. Read the <a href="./privacy.html">Privacy &amp; data notice</a> and <a href="./terms.html">Terms of use</a>. Third-party code and model notices are in <a href="./NOTICE.md">NOTICE.md</a>.</p>
+  <p>This page is an independent implementation, not an official Gigamic product. “Quoridor” is used only to identify the compatible game; no official artwork is included. <a href="./">Return to the game</a>.</p>
+</main></body></html>

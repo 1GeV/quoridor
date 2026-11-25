@@ -1,5 +1,8 @@
 // Browser-direct, opt-in AI requests. No project relay or embedded credentials.
 export const EXTERNAL_PROTOCOLS = ["auto", "chat", "responses", "anthropic"];
+const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
+const EXTENDED_EFFORT = { xhigh: { tokens: 8192, seconds: 90 }, max: { tokens: 16384, seconds: 180 } };
+export const EXTERNAL_EFFORTS = ["auto", ...EFFORT_LEVELS];
 export function validExtBase(baseUrl) {
   try {
     const url = new URL(baseUrl);
@@ -26,7 +29,13 @@ export function extEndpoint(profile) {
   return { url: url.href, protocol, anthropic: protocol === "anthropic" };
 }
 
+function reasoningTokenLimit(maxTokens, effort) {
+  // Reasoning and visible text can share the same output limit.
+  return Math.max(maxTokens, EXTENDED_EFFORT[effort]?.tokens ?? 2048);
+}
+
 export function responsesBody(messages, profile, maxTokens) {
+  const hasEffort = EFFORT_LEVELS.includes(profile.effort);
   const instructions = messages.filter((m) => m.role === "system" || m.role === "developer")
     .map((m) => m.content).filter(Boolean).join("\n\n");
   const input = messages.filter((m) => m.role !== "system" && m.role !== "developer").map((m) => {
@@ -41,7 +50,8 @@ export function responsesBody(messages, profile, maxTokens) {
   // Keep the selected conversation in browser memory; do not request a stored provider conversation.
   // Temperature is omitted because some reasoning models reject it.
   return { model: profile.model, ...(instructions ? { instructions } : {}), input,
-    max_output_tokens: maxTokens, stream: false, store: false };
+    max_output_tokens: hasEffort ? reasoningTokenLimit(maxTokens, profile.effort) : maxTokens, stream: false, store: false,
+    ...(hasEffort ? { reasoning: { effort: profile.effort } } : {}) };
 }
 
 function anthropicContent(content) {
@@ -70,6 +80,10 @@ export function anthropicBody(messages, profile, temperature, maxTokens) {
       return { role: message.role === "assistant" ? "assistant" : "user", content };
     }),
   };
+  if (EFFORT_LEVELS.includes(profile.effort)) {
+    body.output_config = { effort: profile.effort };
+    body.max_tokens = reasoningTokenLimit(maxTokens, profile.effort);
+  }
   if (system) body.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
   return body;
 }
@@ -119,13 +133,17 @@ export async function completeExternal(messages, {
     headers["anthropic-version"] = "2023-06-01";
     headers["anthropic-dangerous-direct-browser-access"] = "true";
   }
-  const timeout = AbortSignal.timeout(30_000);
+  const timeoutSeconds = EXTENDED_EFFORT[profile.effort]?.seconds ?? 30;
+  const timeout = AbortSignal.timeout(timeoutSeconds * 1000);
   const abort = signal ? AbortSignal.any([signal, timeout]) : timeout;
   try {
     abort.throwIfAborted();
     const payload = anthropic ? anthropicBody(messages, profile, temperature, maxTokens)
       : protocol === "responses" ? responsesBody(messages, profile, maxTokens)
-      : { model: profile.model, messages, temperature, max_tokens: maxTokens, stream: false };
+      : { model: profile.model, messages, stream: false,
+        ...(EFFORT_LEVELS.includes(profile.effort)
+          ? { reasoning_effort: profile.effort, max_completion_tokens: reasoningTokenLimit(maxTokens, profile.effort) }
+          : { temperature, max_tokens: maxTokens }) };
     const response = await fetchImpl(url, {
       method: "POST", headers, signal: abort, credentials: "omit", redirect: "error",
       referrerPolicy: "no-referrer", body: JSON.stringify(payload),
@@ -154,8 +172,8 @@ export async function completeExternal(messages, {
     return { content, cacheRead };
   } catch (error) {
     if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
-    if (timeout.aborted) throw new EndpointError("Endpoint timed out after 30 seconds");
+    if (timeout.aborted) throw new EndpointError(`Endpoint timed out after ${timeoutSeconds} seconds`);
     if (error instanceof EndpointError) throw error;
-    throw new EndpointError("The endpoint request failed. Check browser access (CORS), the URL and your connection.");
+    throw new EndpointError("The browser could not reach the endpoint. This may be CORS/preflight, DNS/TLS, network or endpoint availability; it does not by itself mean the key or model is wrong.");
   }
 }

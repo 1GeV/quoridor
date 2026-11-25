@@ -8,18 +8,83 @@
     },
     {
       "path": "index.html",
-      "bytes": 16077,
-      "sha256": "1abf90d0cb147063c34cd6ff8340763d3f4b7e2b562d01b8139fd951992a247a"
+      "bytes": 19102,
+      "sha256": "c61bd937d07b34edd3c5d6a56db10c7597aa296f6d2e96788381af3794d68c4e"
+    },
+    {
+      "path": "guide.html",
+      "bytes": 10238,
+      "sha256": "e8f3d91f8d383e75e04255b1777183fca67a4f8f29d5ebd06a3db19e40c783f7"
+    },
+    {
+      "path": "robots.txt",
+      "bytes": 76,
+      "sha256": "f231cbe42dc05ee783f76158b35f0e1aa4038f2087e031071037bb618d09a9c5"
+    },
+    {
+      "path": "sitemap.xml",
+      "bytes": 486,
+      "sha256": "da31ebfcbf93cf3a28735adfe76212a5769dba5104bd54548dec00e2b7d813ea"
+    },
+    {
+      "path": "assets/apple-touch-icon.png",
+      "bytes": 6153,
+      "sha256": "2d6c38744b3a5bb5285a4a046ca4827757161d240a20a245b9a485512920aba1"
+    },
+    {
+      "path": "assets/favicon-32.png",
+      "bytes": 831,
+      "sha256": "b2afd6f9591d40a223f19fa403d6f6152493963603218279c1ae36b66f28353a"
+    },
+    {
+      "path": "assets/favicon.svg",
+      "bytes": 447,
+      "sha256": "496b9e5bff2d5c63b84fb0c0b4e20d53d2cc5ac114b495983a625ab925b2945e"
+    },
+    {
+      "path": "assets/guide/external-ai.webp",
+      "bytes": 36594,
+      "sha256": "caa582903739203b9dfe78a9c1fa18066f9eb4246c4497ac013f7a6554d358a1"
+    },
+    {
+      "path": "assets/guide/move.webp",
+      "bytes": 18900,
+      "sha256": "2fcf6a02ef3afccf6cf59d2b3b586e1aa6725c5eb5f17cdeecd645b134ca6b91"
+    },
+    {
+      "path": "assets/guide/replay.webp",
+      "bytes": 14918,
+      "sha256": "11ac26b8234353e12d8e196ae44c2bb41704802ab09e94d3e6f700798887b550"
+    },
+    {
+      "path": "assets/guide/room.webp",
+      "bytes": 31770,
+      "sha256": "461100cdadf056ce9ae3228350baeb524909742990791ba361cec2320ce436d6"
+    },
+    {
+      "path": "assets/guide/walls.webp",
+      "bytes": 18990,
+      "sha256": "73d132506a84e2684d8a4bbded8f735217d1555ca66b0ac5e82f9fc5f6f1a0b6"
+    },
+    {
+      "path": "assets/social-preview.png",
+      "bytes": 177777,
+      "sha256": "c95fcc5258e2daa7cd28eb7196a089092687862f8038340084677774418e5f22"
+    },
+    {
+      "path": "assets/social-preview.svg",
+      "bytes": 8332,
+      "sha256": "344d126ada567d290f66f2cb2a03d564265039dbc6a964e889aa180fd57dcf8a"
     },
     {
       "path": "board.css",
-      "bytes": 23230,
-      "sha256": "b416732f5d101b4db624cedd638a48b79950977101447c3d3dd47fe12994b1ac"
+      "bytes": 23274,
+      "sha256": "a8006dbe651b7dec1819892cf86463e300c7751f77a4c8708c3cebe239ff5d62"
     },
     {
       "path": "app.js",
-      "bytes": 89135,
-      "sha256": "3971846ed6fc05141d4e8426d8b7fb7e54bd7d4c861f26921679286960d7e63f"
+      "bytes": 90487,
+      "sha256": "dc291a0c1ce9dc8f715fef78f34c210a98106536bbbb7784ff0a922e0f924b78"
     },
     {
       "path": "rules.js",
@@ -68,8 +133,8 @@
     },
     {
       "path": "external-ai.js",
-      "bytes": 8996,
-      "sha256": "d7194a3228135bcfe5535e8bbc96233e98ecaf8a6edbf9c0e9bff036ff31d89d"
+      "bytes": 10150,
+      "sha256": "fb8725d69e4bf94a3a8bcb9b2aed6ae8051ab3148991bd3e68848b5208d63631"
     },
     {
       "path": "guided.js",
@@ -88,18 +153,18 @@
     },
     {
       "path": "privacy.html",
-      "bytes": 7493,
-      "sha256": "53055a2df655846e86de991da72f35671407c98af3bcf025b956287a513a49e2"
+      "bytes": 7620,
+      "sha256": "47c7fc19e168d2d32587c7370cc7d81222f67feb0b00d07d553c3da20fc95b68"
     },
     {
       "path": "terms.html",
-      "bytes": 2909,
-      "sha256": "65d3d5ac1ddd6b62839af6f5844a03bcb451eaf03d1de3661d6b3b8cdd2e1442"
+      "bytes": 3299,
+      "sha256": "59ed0387dafcba18835d60573a3b3146662b66c0cabafe9ad58f86525742c848"
     },
     {
       "path": "legal.css",
-      "bytes": 1088,
-      "sha256": "38e19a8b5cd7275e1e159a7b8b3f316b0094e4512ee9fbace8a4de183ebd3cd1"
+      "bytes": 2336,
+      "sha256": "c865711352b29acea694944af116dda18a81a3c6d9ba32e56c0b9cd151253c3e"
     },
     {
       "path": "LICENSE",
@@ -108,8 +173,8 @@
     },
     {
       "path": "NOTICE.md",
-      "bytes": 4066,
-      "sha256": "638c73b49bd735c224cfa790b617a92ccbe1d601d61719f6e60d74e5d7860a5d"
+      "bytes": 4196,
+      "sha256": "6cac466e47dee4708e2af936d158a2e37433638e6cb6e0ca36cc952ea7551a5f"
     },
     {
       "path": "models/claustrophobia_v1_3_1.onnx",

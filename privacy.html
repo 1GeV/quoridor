@@ -4,13 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Privacy details for the independent Quoridor browser game: local storage, built-in AI, optional external AI endpoints and online rooms.">
+  <link rel="canonical" href="https://1gev.github.io/quoridor/privacy.html">
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
   <title>Privacy &amp; data · Quoridor</title>
   <link rel="stylesheet" href="./legal.css">
 </head>
 <body><main>
-  <nav aria-label="Navigation"><a href="./">Back to game</a><a href="./terms.html">Terms</a></nav>
+  <nav aria-label="Navigation"><a href="./">Back to game</a><a href="./guide.html">Guide</a><a href="./terms.html">Terms</a></nav>
   <h1>Privacy &amp; data</h1>
-  <p class="muted">Updated November 25, 2026.</p>
+  <p class="muted">Updated November 26, 2026.</p>
   <p class="notice">Built-in AI runs on your device. External AI and online rooms are optional. This application has no accounts, advertising, analytics SDK, payment system or project-operated data server. Hosting and connection providers still process network data.</p>
   <h2>What stays in your browser</h2>
   <table><thead><tr><th>Data</th><th>Purpose and retention</th></tr></thead><tbody>
@@ -26,10 +29,9 @@
   <p>The browser requests page files, runtime and model weights from this site's host. Built-in AI inference does not send your moves to an AI service. A service worker adds browser isolation headers to this project's own files to enable CPU threads; it does not store game data or relay external AI requests. When hosted on GitHub Pages, GitHub logs visitors' IP addresses for security; its retention and rights procedures are governed by <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noreferrer">GitHub's privacy statement</a>. Other hosts have their own policies.</p>
   <h2 id="external-ai">Before connecting an external AI</h2>
   <p>External AI is disabled until you select it and configure a provider. Permission for automatic move requests is separately unchecked by default; without opting in, that AI seat waits and the page prompts you to enable permission. Enable “Allow automatic AI move requests” and select “Save &amp; apply” to permit requests on its turns. Saving may start a provider request if that seat is due to move; paused AI-vs-AI games also require pressing Play. “Test” and sending an AI chat question each send an explicit live provider request, independently of automatic move permission. Local play remains available without a provider or key.</p>
-  <p>Requests go directly from your browser to the endpoint you enter. That endpoint receives your API key in an authorization header, model name and network metadata such as your IP address. No project relay is involved. Remote endpoints require HTTPS; plain HTTP is allowed only for a local loopback service.</p>
+  <p>Requests go directly from your browser to the endpoint you enter. That endpoint receives your API key in an authentication header, model name, any selected reasoning effort and network metadata such as your IP address. No project relay is involved. Remote endpoints require HTTPS; plain HTTP is allowed only for a local loopback service.</p>
   <p>For a move, the endpoint receives the rules, pawn coordinates, walls and reserves, side to move, move count, up to 12 recent moves and legal actions. If you enable board images and the model requests one, it also receives an image of the game board. This does not access your camera or take a screenshot of your desktop.</p>
-  <p>AI chat sends your question, the current board and up to eight previous conversation messages for the selected seat, including move commentary when present. Move requests and chat are separate requests; the application does not create a shared, persistent provider conversation. Provider-side prompt caching or logging may still retain input under that provider's policy.</p>
-  <p>Move and chat requests each include their required context. The app does not request a stored conversation in the Responses API (<code>store: false</code>). Provider-side logging and prompt caching remain subject to that provider's policy.</p>
+  <p>AI chat sends your question, the current board and up to eight previous conversation messages for the selected seat, including move commentary when present. Move requests and chat are separate requests; the app requests <code>store: false</code> for Responses API calls. Provider-side prompt caching or logging may still retain input under that provider's policy.</p>
   <p>The provider may charge, retain input or process data in another country. Review its terms, privacy policy, geographic availability and age restrictions before connecting. Do not submit personal or confidential information in AI chat. Clearing this app cannot delete data already received by the provider.</p>
   <h2 id="rooms">Online rooms</h2>
   <p>Creating or joining a room contacts the public PeerJS signalling service and WebRTC connection services such as STUN and, when available, TURN. They may process IP addresses, peer identifiers, room codes and connection metadata under their policies. The current PeerJS runtime may use relay services when a direct connection cannot be made.</p>
