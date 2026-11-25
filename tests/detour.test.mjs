@@ -4,6 +4,7 @@ import { State, oneTurnDefences } from "../rules.js";
 import { searchGuided } from "../guided.js";
 import { DetourAgent, positionKey } from "../detour.js";
 import { exactEndgame } from "../endgame.js";
+import { Engine } from "../vendor/detour/engine.js";
 
 test("Detour plays legal moves in both seats and leaves the position unchanged", () => {
   let state = State.new();
@@ -113,4 +114,37 @@ test("Cancelling model inference prevents a Guided search from starting", async 
     search: () => { throw new Error("Search started after cancellation"); },
   });
   assert.equal(result, null);
+});
+
+function detourPosition(state) {
+  const walls = (slots) => Array.from(slots.keys()).filter((i) => slots[i])
+    .map((i) => Math.floor(i / 8) + "," + (i % 8));
+  return Engine.fromRules({ rows: 9, cols: 9, turn: state.turn,
+    pawns: state.pos.map((cell) => ({ r: Math.floor(cell / 9), c: cell % 9 })),
+    walls: state.walls, hWalls: walls(state.hw), vWalls: walls(state.vw), winner: state.winner });
+}
+
+test("Detour route search preserves distances and all shorter alternatives", () => {
+  let state = State.new();
+  let seed = 0x54a29387;
+  for (let i = 0; i < 54; i++) {
+    const expected = state.distances();
+    const pos = detourPosition(state);
+    for (const side of [0, 1]) {
+      const pawn = state.pos[side];
+      const map = new Int16Array(81);
+      assert.equal(Engine.distTo(pos, side), expected[side][pawn]);
+      assert.equal(Engine.distMap(pos, side, map), expected[side][pawn]);
+      assert.deepEqual(Array.from(map), Array.from(expected[side]));
+      const distance = Engine.distMap(pos, side, map, true);
+      assert.equal(distance, expected[side][pawn]);
+      for (let cell = 0; cell < map.length; cell++) {
+        if (expected[side][cell] < distance) assert.equal(map[cell], expected[side][cell]);
+      }
+    }
+    const choices = (i % 3 === 0 && state.walls[state.turn]) ? state.wallsLegal() : state.moves();
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    state = state.doAction(choices[seed % choices.length]);
+    if (state.terminal) state = State.new();
+  }
 });

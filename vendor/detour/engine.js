@@ -94,7 +94,16 @@ export const Engine = (function () {
         }
       }
     }
-    g = { pt, border, points: (rows + 1) * GW };
+    const near = new Int32Array(JN * 9), nearSize = new Uint8Array(JN);
+    for (let j = 0; j < JN; j++) {
+      const row = (j / JW) | 0, col = j % JW;
+      for (let r = Math.max(0, row - 1); r <= Math.min(JH - 1, row + 1); r++) {
+        for (let c = Math.max(0, col - 1); c <= Math.min(JW - 1, col + 1); c++) {
+          near[j * 9 + nearSize[j]++] = r * JW + c;
+        }
+      }
+    }
+    g = { pt, border, near, nearSize, points: (rows + 1) * GW };
     geoCache.set(ck, g);
     return g;
   }
@@ -136,6 +145,7 @@ export const Engine = (function () {
       z: zobrist(rows, cols),
       g: geometry(rows, cols),
       touch: null,             // walls meeting at each grid point
+      nearWall: new Uint8Array(JN), // placed walls within one junction
       // scratch
       dist: [new Int16Array(N), new Int16Array(N)],
       bfsQ: new Int32Array(N),
@@ -153,6 +163,7 @@ export const Engine = (function () {
     const { rows, cols, N } = pos;
     pos.adj.fill(0);
     pos.touch.fill(0);
+    pos.nearWall.fill(0);
     pos.wLo = 0; pos.wHi = 0;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -242,6 +253,7 @@ export const Engine = (function () {
     pos.wall[orient][j] = 1;
     const g = pos.g, b = (orient * pos.JN + j) * 3;
     pos.touch[g.pt[b]]++; pos.touch[g.pt[b + 1]]++; pos.touch[g.pt[b + 2]]++;
+    for (let i = j * 9, end = i + g.nearSize[j]; i < end; i++) pos.nearWall[g.near[i]]++;
     pos.wLo ^= pos.z.wallLo[orient][j]; pos.wHi ^= pos.z.wallHi[orient][j];
   }
   function delWall(pos, orient, j) {
@@ -254,6 +266,7 @@ export const Engine = (function () {
     pos.wall[orient][j] = 0;
     const g = pos.g, b = (orient * pos.JN + j) * 3;
     pos.touch[g.pt[b]]--; pos.touch[g.pt[b + 1]]--; pos.touch[g.pt[b + 2]]--;
+    for (let i = j * 9, end = i + g.nearSize[j]; i < end; i++) pos.nearWall[g.near[i]]--;
     pos.wLo ^= pos.z.wallLo[orient][j]; pos.wHi ^= pos.z.wallHi[orient][j];
   }
 
@@ -261,54 +274,60 @@ export const Engine = (function () {
   //  shortest paths
   // =====================================================================
 
-  // BFS from a player's whole goal row back across the board. Early-exits the moment the
-  // pawn's cell is settled, which is the common case in the search.
-  function distTo(pos, player) {
-    const { cols, N, adj } = pos;
-    const from = pos.pawn[player], goalRow = pos.goalRow[player];
-    const d = pos.bfsD, q = pos.bfsQ;
-    d.fill(-1);
+  // Reverse BFS from the goal row. The adjacency mask already excludes board edges
+  // and walls, so each neighbour is an offset from the current cell.
+  function fillGoalDistances(pos, player, out, stopAt) {
+    const { cols, adj, bfsQ: queue } = pos;
+    const start = pos.goalRow[player] * cols;
+    out.fill(-1);
     let head = 0, tail = 0;
-    const base = goalRow * cols;
-    for (let c = 0; c < cols; c++) { d[base + c] = 0; q[tail++] = base + c; }
-    if (d[from] === 0) return 0;
+    for (let cell = start; cell < start + cols; cell++) {
+      out[cell] = 0;
+      queue[tail++] = cell;
+    }
+    if (out[stopAt] === 0) return;
     while (head < tail) {
-      const cur = q[head++];
-      const nd = d[cur] + 1, m = adj[cur];
-      const cr = (cur / cols) | 0, cc = cur - cr * cols;
-      for (let k = 0; k < 4; k++) {
-        if (!(m & DBIT[k])) continue;
-        const ni = (cr + DR[k]) * cols + (cc + DC[k]);
-        if (d[ni] >= 0) continue;
-        d[ni] = nd;
-        if (ni === from) return nd;
-        q[tail++] = ni;
+      const cell = queue[head++];
+      const edges = adj[cell], distance = out[cell] + 1;
+      let next = cell - cols;
+      if ((edges & UP) && out[next] < 0) {
+        out[next] = distance;
+        if (next === stopAt) return;
+        queue[tail++] = next;
+      }
+      next = cell + cols;
+      if ((edges & DOWN) && out[next] < 0) {
+        out[next] = distance;
+        if (next === stopAt) return;
+        queue[tail++] = next;
+      }
+      next = cell - 1;
+      if ((edges & LEFT) && out[next] < 0) {
+        out[next] = distance;
+        if (next === stopAt) return;
+        queue[tail++] = next;
+      }
+      next = cell + 1;
+      if ((edges & RIGHT) && out[next] < 0) {
+        out[next] = distance;
+        if (next === stopAt) return;
+        queue[tail++] = next;
       }
     }
-    return -1;   // walled off
   }
 
-  // Full distance map, kept when we need to walk the shortest path (for wall candidates).
-  function distMap(pos, player, out) {
-    const { cols, N, adj } = pos;
-    const goalRow = pos.goalRow[player];
-    out.fill(-1);
-    const q = pos.bfsQ;
-    let head = 0, tail = 0;
-    const base = goalRow * cols;
-    for (let c = 0; c < cols; c++) { out[base + c] = 0; q[tail++] = base + c; }
-    while (head < tail) {
-      const cur = q[head++];
-      const nd = out[cur] + 1, m = adj[cur];
-      const cr = (cur / cols) | 0, cc = cur - cr * cols;
-      for (let k = 0; k < 4; k++) {
-        if (!(m & DBIT[k])) continue;
-        const ni = (cr + DR[k]) * cols + (cc + DC[k]);
-        if (out[ni] >= 0) continue;
-        out[ni] = nd; q[tail++] = ni;
-      }
-    }
-    const d = out[pos.pawn[player]];
+  function distTo(pos, player) {
+    const from = pos.pawn[player];
+    fillGoalDistances(pos, player, pos.bfsD, from);
+    return pos.bfsD[from];
+  }
+
+  function distMap(pos, player, out, stopAtPawn = false) {
+    const pawn = pos.pawn[player];
+    // Every shorter distance is settled before the pawn is discovered. That is
+    // enough to trace a shortest path, including its original tie order.
+    fillGoalDistances(pos, player, out, stopAtPawn ? pawn : -1);
+    const d = out[pawn];
     const z = pos.z, kLo = (pos.wLo ^ z.pawnLo[player][pos.pawn[player]]) | 0;
     const i = kLo & DC_MASK;
     dcKey[i] = (pos.wHi ^ z.pawnHi[player][pos.pawn[player]]) | 0; dcVal[i] = d + 2;
@@ -958,24 +977,12 @@ export const Engine = (function () {
       onPath.fill(0, 0, JN * 2);
 
       // walls that lie across the opponent's shortest route
-      if (distMap(pos, opp, pm) >= 0) markPathWalls(pos, opp, pm, onPath, 2);
+      if (distMap(pos, opp, pm, true) >= 0) markPathWalls(pos, opp, pm, onPath, 2);
       // and across ours
-      if (distMap(pos, me, pm) >= 0) markPathWalls(pos, me, pm, onPath, 1);
+      if (distMap(pos, me, pm, true) >= 0) markPathWalls(pos, me, pm, onPath, 1);
 
 
-      // walls touching an existing wall, and walls beside either pawn
-      for (let o = 0; o < 2; o++) {
-        for (let j = 0; j < JN; j++) {
-          if (!pos.wall[o][j]) continue;
-          const jr = (j / JW) | 0, jc = j - jr * JW;
-          for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
-            const rr = jr + dr, cc = jc + dc;
-            if (rr < 0 || rr >= JH || cc < 0 || cc >= JW) continue;
-            const k = rr * JW + cc;
-            onPath[k] |= 4; onPath[JN + k] |= 4;
-          }
-        }
-      }
+      // Walls beside either pawn. Proximity to a placed wall is tracked by make/unmake.
       for (let p = 0; p < 2; p++) {
         const pr = (pos.pawn[p] / cols) | 0, pc = pos.pawn[p] - pr * cols;
         for (let dr = -2; dr <= 1; dr++) for (let dc = -2; dc <= 1; dc++) {
@@ -988,7 +995,7 @@ export const Engine = (function () {
 
       for (let o = 0; o < 2; o++) {
         for (let j = 0; j < JN; j++) {
-          const tag = onPath[o * JN + j];
+          const tag = onPath[o * JN + j] | (pos.nearWall[j] ? 4 : 0);
           if (!tag) continue;
           if (!wallFits(pos, o, j)) continue;
           const m = mvWall(j, o);
