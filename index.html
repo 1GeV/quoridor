@@ -62,6 +62,7 @@
       <div class="result-label" id="resultLabel" hidden>Game complete</div>
       <div class="status" id="status">Loading game</div>
       <div class="sub" id="hint">Select a highlighted square to move.</div>
+      <div class="note" id="roomRematch" hidden></div>
     </div>
     <div class="game-tools" role="group" aria-label="Game controls">
       <button class="btn primary" id="btnNew">New game</button>
@@ -277,7 +278,7 @@
   </div>
   <p class="result-eyebrow" id="resultEyebrow">Game complete</p>
   <h2 id="resultTitle">Game complete</h2>
-  <p class="result-description" id="resultDescription"></p>
+  <p class="result-description" id="resultDescription" aria-live="polite"></p>
   <p class="result-matchup" id="resultMatchup"></p>
   <dl class="result-stats">
     <div><dt>Moves played</dt><dd id="resultMoves">0</dd></div>
@@ -293,6 +294,6 @@
 </dialog>
 
 <script src="./vendor/peerjs.min.js"></script>
-<script type="module" src="./startup.js"></script>
+<script type="module" src="./startup.js?v=room-rematch"></script>
 </body>
 </html>
