@@ -8,18 +8,18 @@
     },
     {
       "path": "index.html",
-      "bytes": 15620,
-      "sha256": "9fc271b0578444b907c4ec377f93ac29060f8e59a8934ff1a11d10b124061bbb"
+      "bytes": 16077,
+      "sha256": "1abf90d0cb147063c34cd6ff8340763d3f4b7e2b562d01b8139fd951992a247a"
     },
     {
       "path": "board.css",
-      "bytes": 22173,
-      "sha256": "127778b7bdf2a4d610da4c699e696b4f42e0ab968da64d1fcea8be96819b6bee"
+      "bytes": 23230,
+      "sha256": "b416732f5d101b4db624cedd638a48b79950977101447c3d3dd47fe12994b1ac"
     },
     {
       "path": "app.js",
-      "bytes": 81895,
-      "sha256": "f8bcd3ea5a5afa127bcc48fb37e0325034685df7593fd3421996ff8517bd4ac4"
+      "bytes": 89135,
+      "sha256": "3971846ed6fc05141d4e8426d8b7fb7e54bd7d4c861f26921679286960d7e63f"
     },
     {
       "path": "rules.js",
@@ -28,8 +28,18 @@
     },
     {
       "path": "sigma.js",
-      "bytes": 17237,
-      "sha256": "ab95a46cb232591940693ea3f4a936a97fad01576c37f955d3bc1d181f291dd9"
+      "bytes": 18307,
+      "sha256": "d0a0435b513387e1ccd841b386637ae67a55eba5f232cdaa32781a7191e40733"
+    },
+    {
+      "path": "startup.js",
+      "bytes": 1562,
+      "sha256": "2a6b6540ccbfa088cbdeb34a20e48eb4f6e72230f531ee5bed76e296a8fa0331"
+    },
+    {
+      "path": "isolation-sw.js",
+      "bytes": 1179,
+      "sha256": "12cf798b31fe38ecbd6423a8bb1ac8c56458dee3f98b1a98ede11a1e99dccd2c"
     },
     {
       "path": "alphabeta.js",
@@ -63,8 +73,8 @@
     },
     {
       "path": "guided.js",
-      "bytes": 974,
-      "sha256": "7cb43afc4d4045e0b7d3df58ce11f72688bd9e462bbdfe9249554da8d32fcd24"
+      "bytes": 1267,
+      "sha256": "06b5ab6585a895500bf2e6f56867948998a09f096cca2815bb268718381d36e8"
     },
     {
       "path": "heuristic.js",
@@ -72,9 +82,14 @@
       "sha256": "5b70e9100a42e9976c2fd6b1faed1f38581e584beec9beb9a49da2ab7e8f1391"
     },
     {
+      "path": "ai-assets.js",
+      "bytes": 5327,
+      "sha256": "8ccc20dbbfa4325b4af1f53570f2866251c63001e3fc2132f61bce59aeb3d5b2"
+    },
+    {
       "path": "privacy.html",
-      "bytes": 7037,
-      "sha256": "56baa8e7f22db0f06ec05dadaaf6df2d968e29b2ed6f9ffa0950e7b1aa3737e4"
+      "bytes": 7493,
+      "sha256": "53055a2df655846e86de991da72f35671407c98af3bcf025b956287a513a49e2"
     },
     {
       "path": "terms.html",

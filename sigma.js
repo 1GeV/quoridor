@@ -1,5 +1,6 @@
 import { oneTurnDefences, winningMove } from "./rules.js";
 import { raceMove, raceValue } from "./endgame.js";
+import { loadAIAsset } from "./ai-assets.js";
 export { raceValue } from "./endgame.js";
 
 // Sigma network wrapper for the browser (onnxruntime-web, wasm backend).
@@ -119,24 +120,44 @@ export function legalIndexMap(state) {
   return out;
 }
 
+let browserWasmPending = null;
+let browserWasmReady = false;
+function prepareBrowserWasm(ort) {
+  if (browserWasmReady) return Promise.resolve();
+  browserWasmPending ??= loadAIAsset("vendor/ort/ort-wasm-simd-threaded.jsep.wasm")
+    .then((bytes) => { ort.env.wasm.wasmBinary = bytes; })
+    .catch((error) => { browserWasmPending = null; throw error; });
+  return browserWasmPending;
+}
+
 export async function loadModelSession(url, ortLib, opts = {}) {
   const ort = ortLib || globalThis.ort;
   if (!ort) throw new Error("onnxruntime-web is not loaded");
   if (typeof document !== "undefined") {
     ort.env.wasm.wasmPaths = new URL("vendor/ort/", document.baseURI).href;
-    // COOP/COEP enable threads locally. Static hosts use a single thread.
+    // The local server or scoped service worker supplies isolation for CPU threads.
     ort.env.wasm.numThreads = globalThis.crossOriginIsolated
       ? Math.min(4, navigator.hardwareConcurrency || 2)
       : 1;
+    // Keep CPU inference off the UI thread so thinking limits and controls can run.
+    ort.env.wasm.proxy = !(opts.executionProviders || []).includes("webgpu");
     if (ort.env.webgpu) ort.env.webgpu.powerPreference = "high-performance";
   } else {
     ort.env.wasm.numThreads = 1;
   }
   ort.env.wasm.simd = true;
-  return ort.InferenceSession.create(url, {
+  const options = {
     executionProviders: opts.executionProviders || ["wasm"],
     graphOptimizationLevel: "all",
-  });
+  };
+  if (typeof document === "undefined" || !globalThis.crypto?.subtle) return ort.InferenceSession.create(url, options);
+  // Fetch the model and runtime together; subsequent visits read verified local bytes.
+  const [bytes] = await Promise.all([loadAIAsset(url), prepareBrowserWasm(ort)]);
+  const session = await ort.InferenceSession.create(bytes, options);
+  browserWasmReady = true;
+  delete ort.env.wasm.wasmBinary;
+  browserWasmPending = null;
+  return session;
 }
 
 export class SigmaNet {
