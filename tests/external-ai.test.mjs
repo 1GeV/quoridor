@@ -41,7 +41,8 @@ test("Anthropic requests preserve separate system instructions, images and cache
     assert.equal(options.headers.Authorization, undefined);
     const body = JSON.parse(options.body);
     assert.deepEqual(body.system[0], { type: "text", text: "Stable rules", cache_control: { type: "ephemeral" } });
-    assert.equal(body.messages[1].content[0].cache_control.type, "ephemeral");
+    assert.equal(body.messages[0].content[0].cache_control.type, "ephemeral");
+    assert.equal(body.messages[1].content[0].cache_control, undefined);
     assert.deepEqual(body.messages[2].content[0], { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "YQ==" } });
     return Response.json({ content: [{ type: "text", text: "OK" }], usage: { cache_read_input_tokens: 11 } });
   } }, { ...profile, baseUrl: "https://api.anthropic.com" });

@@ -229,10 +229,38 @@ try {
     assert.equal(move.system, question.system);
     assert.deepEqual(move.turns.slice(0, question.turns.length), question.turns);
     assert.equal(await page.run(() => quoridor.state().walls[1]), 9);
-    if (protocol === "responses") assert.equal(move.body.store, false);
-    else assert.equal(move.body.messages.at(-1).content[0].cache_control.type, "ephemeral");
+    await sendMessage("How did that move follow the plan?"); await chatReady();
+    const discussion = calls.at(-1);
+    assert.equal(discussion.system, move.system);
+    assert.deepEqual(discussion.turns.slice(0, move.turns.length), move.turns);
+    assert.equal(discussion.board.movesPlayed, 2);
+    assert.deepEqual(discussion.board.placedWalls, [JSON.parse(discussion.turns.at(-2).content).move]);
+    if (protocol === "responses") {
+      for (const call of [question, move, discussion]) {
+        assert.equal(call.body.store, false);
+        assert.equal(call.body.previous_response_id, undefined);
+      }
+    } else {
+      for (const call of [question, move, discussion]) {
+        assert.equal(call.body.messages.at(-1).content[0].cache_control.type, "ephemeral");
+        assert.ok(call.body.messages.slice(0, -1).every((message) => !message.content[0].cache_control));
+      }
+    }
+    assert.match(await chatLog(), /PROMPT CACHE 7 TOK/);
   }
-  console.log("PASS: automatic moves work with Chat Completions, Responses and Anthropic Messages");
+  console.log("PASS: automatic moves and chat share stable prefixes and display reported hits across all three API formats");
+
+  await fresh();
+  for (let i = 0; i < 15; i++) {
+    await sendMessage(`Strategy message ${i}.`);
+    await chatReady();
+  }
+  const chatRequests = calls.map((call) => call.turns);
+  assert.equal(chatRequests[12].length, 26);
+  assert.equal(chatRequests[13].length, 20);
+  assert.doesNotMatch(JSON.stringify(chatRequests[13]), /Strategy message 0\./);
+  assert.deepEqual(chatRequests[14].slice(0, chatRequests[13].length), chatRequests[13]);
+  console.log("PASS: history stays bounded and resumes stable prefixes after trimming");
   await fresh({}, [{}, profile(true)]);
   await page.run(() => { document.querySelector("#btnExtToggle").click(); document.querySelector("#extEffort").value = "max"; document.querySelector("#btnExtSave").click(); });
   await humanMove(); await page.wait(() => quoridor.state().ply === 2);

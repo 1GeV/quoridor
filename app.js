@@ -1200,10 +1200,15 @@ function externalMessages(history, request) {
   ];
 }
 function appendExternalTurn(seat, turn) {
-  const history = extConversations[seat];
+  let history = extConversations[seat];
   const sameKind = history.filter((entry) => entry.kind === turn.kind);
   const limit = turn.kind === "error" ? 4 : EXTERNAL_HISTORY_PER_KIND;
-  if (sameKind.length >= limit) history.splice(history.indexOf(sameKind[0]), 1);
+  if (sameKind.length >= limit) {
+    // Trim in batches so a full conversation can still reuse its prompt prefix
+    // on the next few turns. A long series of moves leaves the chat intact.
+    const through = sameKind[turn.kind === "error" ? 0 : 3].id;
+    history = extConversations[seat] = history.filter((entry) => entry.kind !== turn.kind || entry.id > through);
+  }
   history.push({ ...turn, id: ++extTurnId });
 }
 

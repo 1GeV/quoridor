@@ -71,14 +71,14 @@ function anthropicContent(content) {
 export function anthropicBody(messages, profile, temperature, maxTokens) {
   const system = messages.filter((message) => message.role === "system").map((message) => message.content).filter(Boolean).join("\n\n");
   const rest = messages.filter((message) => message.role !== "system");
+  // Advance the checkpoint with the conversation. An image follow-up uses the
+  // last text request, since only its text is carried into the next turn.
+  const checkpoint = system ? rest.findLastIndex((message) =>
+    message.role === "user" && typeof message.content === "string") : -1;
   const body = { model: profile.model, max_tokens: maxTokens, temperature,
     messages: rest.map((message, index) => {
       const content = anthropicContent(message.content);
-      const priorReply = index === rest.length - 2 && message.role === "assistant";
-      const latestText = index === rest.length - 1 && typeof message.content === "string" && rest.length > 1;
-      if ((priorReply || latestText) && content.length) {
-        content[content.length - 1] = { ...content.at(-1), cache_control: { type: "ephemeral" } };
-      }
+      if (index === checkpoint) content[0].cache_control = { type: "ephemeral" };
       return { role: message.role === "assistant" ? "assistant" : "user", content };
     }),
   };
