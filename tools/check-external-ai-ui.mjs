@@ -183,12 +183,12 @@ try {
   }
   console.log("PASS: automatic moves work with Chat Completions, Responses and Anthropic Messages");
   await fresh({}, [{}, profile(true)]);
-  await page.run(() => { document.querySelector("#btnExtToggle").click(); document.querySelector("#extEffort").value = "high"; document.querySelector("#btnExtSave").click(); });
+  await page.run(() => { document.querySelector("#btnExtToggle").click(); document.querySelector("#extEffort").value = "max"; document.querySelector("#btnExtSave").click(); });
   await humanMove(); await page.wait(() => quoridor.state().ply === 2);
-  assert.equal(calls.at(-1).body.reasoning_effort, "high");
+  assert.equal(calls.at(-1).body.reasoning_effort, "max");
   await page.run(() => { window.quoridor = null; });
   await page.send("Page.reload"); await page.wait(() => !!window.quoridor);
-  assert.equal(await page.run(() => document.querySelector("#extEffort").value), "high");
+  assert.equal(await page.run(() => document.querySelector("#extEffort").value), "max");
   console.log("PASS: selected Effort is included in the request and persists across a reload");
 
   await fresh({}, [{}, { ...profile(true), baseUrl: apiOrigin + "/blocked/v1" }]);

@@ -148,8 +148,8 @@ test("Responses rejects partial, failed and empty outputs without leaking provid
 test("optional Effort is mapped per API format and Auto omits it", async () => {
   const cases = [
     { protocol: "chat", field: "reasoning_effort", effort: "low", reply: { choices: [{ message: { content: "OK" } }] } },
-    { protocol: "responses", field: "reasoning", effort: "high", reply: { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }] } },
-    { protocol: "anthropic", field: "output_config", effort: "medium", reply: { content: [{ type: "text", text: "OK" }] } },
+    { protocol: "responses", field: "reasoning", effort: "xhigh", reply: { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }] } },
+    { protocol: "anthropic", field: "output_config", effort: "max", reply: { content: [{ type: "text", text: "OK" }] } },
   ];
   for (const item of cases) {
     let payload;
@@ -165,5 +165,7 @@ test("optional Effort is mapped per API format and Auto omits it", async () => {
     const selected = await request(item.effort);
     assert.deepEqual(selected[item.field], item.protocol === "responses" ? { effort: item.effort }
       : item.protocol === "anthropic" ? { effort: item.effort } : item.effort);
+    if (item.protocol === "responses") assert.equal(selected.max_output_tokens, 8192);
+    if (item.protocol === "anthropic") assert.equal(selected.max_tokens, 16384);
   }
 });

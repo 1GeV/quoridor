@@ -181,6 +181,8 @@
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
+            <option value="xhigh">Extra high</option>
+            <option value="max">Max</option>
           </select></div>
           <label class="check" style="margin-top:0"><input type="checkbox" id="extRemember"> Remember key (stored unencrypted)</label>
           <label class="check" style="margin-top:0"><input type="checkbox" id="extAllowMoves" aria-describedby="extMovesHelp"> Allow automatic AI move requests</label>
@@ -195,7 +197,7 @@
             <summary>Connection help &amp; privacy</summary>
             <p id="extEndpointHelp">Base URLs such as https://api.example.com/v1 work with Custom endpoint unchecked. Standard full endpoint paths are detected automatically. Check the option only to use a custom URL without adding a path.</p>
             <p id="extKeyHelp">Leave the key blank only if your endpoint requires no key. A local model server can use an address such as http://localhost:1234/v1 and its loaded model ID. It must allow this site's origin through CORS; your browser may also ask for permission to connect. Localhost refers to the device running this browser.</p>
-            <p>Effort applies to moves, chat and Test. Supported levels depend on your model and provider.</p>
+            <p>Effort applies to moves, chat and Test. Supported levels depend on your model and provider. Extra high and Max can take longer and cost more.</p>
             <p id="extMovesHelp">Without move permission, this AI seat waits. Enable the option and Save &amp; apply to continue; in AI vs AI, also press Play. Test and chat are separate requests.</p>
             <p>Requests go directly to your endpoint with your key and board context. Chat adds your question and recent conversation. Identical move requests may reuse a result in this tab; provider prompt caching depends on your provider. <a href="./privacy.html#external-ai">Privacy details</a></p>
           </details>
