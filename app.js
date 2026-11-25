@@ -1,0 +1,2046 @@
+// Quoridor 9x9 browser UI: board, AI, AI-vs-AI autoplay, replay and saved games.
+// Static site, no paid services: ONNX Runtime Web and PeerJS are vendored.
+import { State, actionStr, A_H, A_V, N_MOVES } from "./rules.js";
+import { SigmaNet, SigmaAgent, SigmaBatchAgent } from "./sigma.js";
+import { searchGuided } from "./guided.js";
+import { ClaustrophobiaNet } from "./claustrophobia.js";
+import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS } from "./external-ai.js";
+import { positionKey } from "./detour.js";
+
+const $ = (id) => document.getElementById(id);
+const ui = {
+  boardFrame: $("boardFrame"),
+  boardTools: $("boardTools"),
+  themeSwitch: $("themeSwitch"),
+  playerRed: $("playerRed"),
+  playerBlue: $("playerBlue"),
+  nameRed: $("nameRed"),
+  nameBlue: $("nameBlue"),
+  tagRed: $("tagRed"),
+  tagBlue: $("tagBlue"),
+  wallsRed: $("wallsRed"),
+  wallsBlue: $("wallsBlue"),
+  pipsRed: $("pipsRed"),
+  pipsBlue: $("pipsBlue"),
+  status: $("status"),
+  hint: $("hint"),
+  boardStatus: $("boardStatus"),
+  resultLabel: $("resultLabel"),
+  resultDialog: $("resultDialog"),
+  resultEyebrow: $("resultEyebrow"),
+  resultTitle: $("resultTitle"),
+  resultDescription: $("resultDescription"),
+  resultMatchup: $("resultMatchup"),
+  resultMoves: $("resultMoves"),
+  resultWalls: $("resultWalls"),
+  resultWinner: $("resultWinner"),
+  btnResult: $("btnResult"),
+  btnResultClose: $("btnResultClose"),
+  btnResultBoard: $("btnResultBoard"),
+  btnResultNew: $("btnResultNew"),
+  btnResultReview: $("btnResultReview"),
+  btnResultUndo: $("btnResultUndo"),
+  seg: $("seg"),
+  bottomLabel: $("bottomLabel"),
+  viewBottom: $("viewBottom"),
+  roomPanel: $("roomPanel"),
+  roomCode: $("roomCode"),
+  roomMsg: $("roomMsg"),
+  joinCode: $("joinCode"),
+  btnCreate: $("btnCreate"),
+  btnJoin: $("btnJoin"),
+  engineRedRow: $("engineRedRow"),
+  engineBlueRow: $("engineBlueRow"),
+  engineCard: $("engineCard"),
+  capRed: $("capRed"),
+  capBlue: $("capBlue"),
+  engineRed: $("engineRed"),
+  engineBlue: $("engineBlue"),
+  engineNote: $("engineNote"),
+  extCard: document.querySelector(".ext-card"),
+  btnExtToggle: $("btnExtToggle"),
+  extSummary: $("extSummary"),
+  extSeatRow: $("extSeatRow"),
+  extSeat: $("extSeat"),
+  extForm: $("extForm"),
+  extBase: $("extBase"),
+  extProtocol: $("extProtocol"),
+  extFullEndpoint: $("extFullEndpoint"),
+  extKey: $("extKey"),
+  extModel: $("extModel"),
+  extRemember: $("extRemember"),
+  extImage: $("extImage"),
+  extAllowMoves: $("extAllowMoves"),
+  btnExtSave: $("btnExtSave"),
+  btnExtTest: $("btnExtTest"),
+  btnExtForget: $("btnExtForget"),
+  extNote: $("extNote"),
+  chatStatus: $("chatStatus"),
+  chatLog: $("chatLog"),
+  chatInput: $("chatInput"),
+  btnChatSend: $("btnChatSend"),
+  btnChatClear: $("btnChatClear"),
+  btnClearLocal: $("btnClearLocal"),
+  btnNew: $("btnNew"),
+  btnPlay: $("btnPlay"),
+  btnUndo: $("btnUndo"),
+  btnFlip: $("btnFlip"),
+  speed: $("speed"),
+  speedText: $("speedText"),
+  replayLabel: $("replayLabel"),
+  replayCard: $("replayCard"),
+  replayPosition: $("replayPosition"),
+  replaySpeed: $("replaySpeed"),
+  continueMode: $("continueMode"),
+  btnContinue: $("btnContinue"),
+  continueNote: $("continueNote"),
+  btnImport: $("btnImport"),
+  btnExport: $("btnExport"),
+  importFile: $("importFile"),
+  archiveNote: $("archiveNote"),
+  btnPrev: $("btnPrev"),
+  btnNext: $("btnNext"),
+  btnAuto: $("btnAuto"),
+  saveGames: $("saveGames"),
+  savedList: $("savedList"),
+  btnLoad: $("btnLoad"),
+  btnDelete: $("btnDelete"),
+  log: $("log"),
+  moveCount: $("moveCount"),
+};
+
+const cvs = $("board");
+const ctx = cvs.getContext("2d");
+const PREF_KEY = "quoridor.prefs.v1";
+const SAVE_KEY = "quoridor.savedGames.v1";
+const MAX_SAVED = 80;
+const DEFAULT_ENGINE = "champion:6:1200";
+const GAME_FILE = "quoridor-game";
+const MAX_GAME_FILE_BYTES = 64 * 1024;
+
+const PALETTES = {
+  light: { paper: "#e1e8e4", cell: "#f5f8f5", redGoal: "#f6d9d2", blueGoal: "#d8e8fa",
+    red: "#c34736", blue: "#2861aa", wall: "#263f35", amber: "#92651f", ink: "#172b25",
+    muted: "#455b53", ghost: "#507665", move: "#47725c" },
+  dark: { paper: "#182823", cell: "#263b32", redGoal: "#52352f", blueGoal: "#2b415c",
+    red: "#ef806d", blue: "#74a9f1", wall: "#e7d9b6", amber: "#efc575", ink: "#edfaf4",
+    muted: "#b7c9c0", ghost: "#b4c9af", move: "#a3cdb0" },
+};
+let COL = PALETTES.light;
+let boardTool = "auto";
+// ---------------------------------------------------------------- preferences
+function readPrefs() {
+  try { return JSON.parse(localStorage.getItem(PREF_KEY) || "{}") || {}; } catch (e) { return {}; }
+}
+const prefs = readPrefs();
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+let themeMode = ["auto", "dark", "light"].includes(prefs.theme) ? prefs.theme : "auto";
+let mode = ["ai", "hotseat", "ai_ai"].includes(prefs.mode) ? prefs.mode : "ai";
+let lastPlayMode = mode;
+let humanSide = prefs.humanSide === 1 ? 1 : 0;
+// The opponent keeps its engine profile when its board colour changes.
+const opponentSeat = [0, 1].includes(prefs.opponentSeat) ? prefs.opponentSeat : 1 - humanSide;
+let viewBottomSetting = prefs.viewBottom !== false;
+let speed = clamp(Number(prefs.speed) || 0.7, 0.05, 2.5);
+let replaySpeed = [0.5, 1, 1.5, 2, 3].includes(prefs.replaySpeed) ? prefs.replaySpeed : 2;
+let saveEnabled = prefs.saveGames !== false;
+let engineCfg = {
+  0: typeof prefs.engineRed === "string" ? prefs.engineRed : DEFAULT_ENGINE,
+  1: typeof prefs.engineBlue === "string" ? prefs.engineBlue : DEFAULT_ENGINE,
+};
+let savedGames = [];
+try { savedGames = JSON.parse(localStorage.getItem(SAVE_KEY) || "[]") || []; } catch (e) { savedGames = []; }
+
+const EXT_KEY = "quoridor.external.v2";
+const EXT_SESSION_PREFIX = "quoridor.extKey.session.v2.";
+const EMPTY_EXT = () => ({ baseUrl: "", protocol: "auto", fullEndpoint: false, apiKey: "", model: "", remember: false, allowImage: false, allowMoveRequests: false });
+let extProfiles = [EMPTY_EXT(), EMPTY_EXT()];
+let extSeat = 1;
+let chatHistories = [[], []];
+let chatHistory = chatHistories[extSeat];
+try {
+  const raw = JSON.parse(localStorage.getItem(EXT_KEY) || "{}");
+  const list = Array.isArray(raw.profiles) ? raw.profiles : (raw.baseUrl ? [{}, raw] : []);
+  for (let i = 0; i < 2; i++) {
+    const p = list[i] || {};
+    let sessionKey = "";
+    try { sessionKey = sessionStorage.getItem(EXT_SESSION_PREFIX + i) || ""; } catch (e) {}
+    extProfiles[i] = {
+      baseUrl: String(p.baseUrl || ""),
+      protocol: EXTERNAL_PROTOCOLS.includes(p.protocol) ? p.protocol : "auto",
+      fullEndpoint: !!p.fullEndpoint,
+      model: String(p.model || ""),
+      remember: !!p.remember,
+      allowImage: !!p.allowImage,
+      allowMoveRequests: !!p.allowMoveRequests,
+      apiKey: p.remember ? String(p.apiKey || sessionKey) : String(sessionKey),
+    };
+  }
+} catch (e) {}
+const extMoveCache = new Map();
+let extMoveController = null;
+let chatBusy = false;
+let chatController = null;
+
+function persistPrefs() {
+  if (["ai", "hotseat", "ai_ai"].includes(mode)) lastPlayMode = mode;
+  try {
+    localStorage.setItem(PREF_KEY, JSON.stringify({
+      theme: themeMode, mode: lastPlayMode,
+      humanSide, opponentSeat, viewBottom: viewBottomSetting, speed, replaySpeed, saveGames: saveEnabled,
+      engineRed: engineCfg[0], engineBlue: engineCfg[1],
+    }));
+  } catch (e) {}
+}
+function persistSaved() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(savedGames.slice(0, MAX_SAVED))); } catch (e) {}
+}
+
+// ---------------------------------------------------------------- theme
+function effectiveTheme() {
+  if (themeMode === "auto") {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return themeMode;
+}
+function applyTheme() {
+  const t = effectiveTheme();
+  document.documentElement.dataset.theme = t;
+  COL = PALETTES[t];
+  for (const b of ui.themeSwitch.querySelectorAll("button")) {
+    b.classList.toggle("on", b.dataset.theme === themeMode);
+    b.setAttribute("aria-pressed", String(b.dataset.theme === themeMode));
+  }
+  draw();
+}
+function setTheme(next) {
+  themeMode = ["auto", "dark", "light"].includes(next) ? next : "auto";
+  applyTheme();
+  persistPrefs();
+}
+if (window.matchMedia) {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  if (mq.addEventListener) mq.addEventListener("change", () => { if (themeMode === "auto") applyTheme(); });
+  else if (mq.addListener) mq.addListener(() => { if (themeMode === "auto") applyTheme(); });
+}
+
+// ---------------------------------------------------------------- engines
+const ENGINE_OPTIONS = [
+  ["champion:10:3000", "Claustrophobia + Alpha-beta · deep (3 s)"],
+  ["champion:6:1200", "Claustrophobia + Alpha-beta · standard (1.2 s)"],
+  ["guided:6:1200", "Guided Alpha-beta · experimental (1.2 s)"],
+  ["sigma:0", "Sigma · policy only"],
+  ["sigma:64", "Sigma · quick search"],
+  ["sigma:256", "Sigma · standard search"],
+  ["sigma:512", "Sigma · extended search (up to 2.4 s)"],
+  ["sigma:1024", "Sigma · 1024 target / 3.2 s"],
+  ["sigma:2048", "Sigma · 2048 target / 4 s"],
+  ["ab:4:350", "Alpha-beta · quick (0.35 s)"],
+  ["ab:6:1200", "Alpha-beta · standard (1.2 s)"],
+  ["ab:8:2200", "Alpha-beta · deep (2.2 s)"],
+  ["ab:10:4000", "Alpha-beta · maximum (4 s)"],
+  ["ext:default", "External AI · configured endpoint"],
+];
+function fillEngineSelect(sel, value) {
+  sel.innerHTML = "";
+  for (const [v, label] of ENGINE_OPTIONS) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = label;
+    sel.appendChild(o);
+  }
+  if (!ENGINE_OPTIONS.some(([v]) => v === value)) value = DEFAULT_ENGINE;
+  sel.value = value;
+  return value;
+}
+function parseEngine(v) {
+  const [kind, a, b] = String(v).split(":");
+  if (kind === "sigma") return { kind, sims: Number(a) || 0 };
+  if (kind === "ext") return { kind: "ext" };
+  return { kind: kind === "guided" || kind === "champion" ? kind : "ab", depth: Number(a) || 6, ms: Number(b) || 1200 };
+}
+function engineSeat(side) {
+  return mode === "ai" && side !== humanSide ? opponentSeat : side;
+}
+function engineName(side) {
+  const cfg = parseEngine(engineCfg[engineSeat(side)]);
+  if (cfg.kind === "sigma") return cfg.sims ? `Sigma ${cfg.sims}` : "Sigma";
+  if (cfg.kind === "ext") {
+    const model = extProfile(engineSeat(side)).model;
+    return model ? `External ${model}` : "External AI";
+  }
+  return `${searchName(cfg.kind)} ${cfg.ms / 1000}s`;
+}
+function engineShort(side) {
+  const cfg = parseEngine(engineCfg[engineSeat(side)]);
+  if (cfg.kind === "sigma") return `Sigma ${cfg.sims}`;
+  if (cfg.kind === "ext") return "External AI";
+  return `${searchName(cfg.kind)} ${cfg.ms / 1000}s`;
+}
+
+function searchName(kind) {
+  if (kind === "champion") return "Claustrophobia + Alpha-beta";
+  return kind === "guided" ? "Guided Alpha-beta" : "Alpha-beta";
+}
+
+// ---------------------------------------------------------------- app state
+let state = State.new();
+let history = [state];
+let moves = [];                    // [{ n, side, a, text }]
+let lastAction = null;
+let busy = false;
+let aiEpoch = 0;
+let aiTimer = null;
+let lastInfo = "";
+let lastExtSay = "";
+let hover = null;
+let geo = null;
+let viewFlip = false;
+let running = false;
+let savedLines = new Set();
+let selectedSavedId = null;
+let presentedResult = null;
+
+let replayStates = null;
+let replayMoves = [];
+let replayRecord = null;
+let replayIdx = 0;
+let replayPlaying = false;
+let replayTimer = null;
+
+let sigmaNet = null;
+let sigmaPromise = null;
+let championPromise = null;
+let sigmaQueue = Promise.resolve();
+let sigmaBatch = false;
+let sigmaAgents = { 0: null, 1: null };
+let alphaWorker = null;
+let cancelAlphaSearch = null;
+
+let peer = null, conn = null, roomCode = null, roomRole = null, roomReady = false;
+let mySide = 0;
+
+function playerName(side) {
+  if (mode === "replay" && replayRecord) return side === 0 ? (replayRecord.p0 || "Red") : (replayRecord.p1 || "Blue");
+  if (mode === "room") return side === mySide ? "You" : "Opponent";
+  if (mode === "hotseat") return side === 0 ? "Player 1" : "Player 2";
+  if (mode === "ai") return side === humanSide ? "You" : engineName(side);
+  return engineName(side);
+}
+function playerTag(side) {
+  const base = side === 0 ? "bottom · reach the top" : "top · reach the bottom";
+  if (mode === "ai" && side !== humanSide) return `${base} · ${engineShort(side)}`;
+  if (mode === "ai_ai") return `${base} · ${engineShort(side)}`;
+  return base;
+}
+function savePlayerName(side) {
+  if (mode === "replay" && replayRecord) return side === 0 ? (replayRecord.p0 || "Red") : (replayRecord.p1 || "Blue");
+  if (mode === "ai") return side === humanSide ? "You" : engineName(side);
+  if (mode === "ai_ai") return engineName(side);
+  return side === 0 ? "Player 1" : "Player 2";
+}
+
+// ---------------------------------------------------------------- geometry / drawing
+function layout() {
+  const frame = ui.boardFrame.getBoundingClientRect();
+  const side = Math.min(frame.width, Math.max(300, innerHeight - 235), 660);
+  const cell = Math.max(1, Math.floor(side / 10.48));
+  const margin = Math.floor(cell * .74);
+  const size = cell * 9 + margin * 2;
+  const dpr = window.devicePixelRatio || 1;
+  cvs.style.width = size + "px";
+  cvs.style.height = size + "px";
+  cvs.width = Math.floor(size * dpr);
+  cvs.height = Math.floor(size * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  geo = { cell, margin, size };
+  draw();
+}
+const cx = (c) => geo.margin + (c + 0.5) * geo.cell;
+const cy = (r) => geo.margin + (r + 0.5) * geo.cell;
+const viewCell = (r, c) => (viewFlip ? [8 - r, 8 - c] : [r, c]);
+const viewWall = (r, c) => (viewFlip ? [7 - r, 7 - c] : [r, c]);
+
+function draw() {
+  if (!geo) return;
+  const { cell, margin, size } = geo;
+  ctx.clearRect(0, 0, size, size);
+  roundRect(0, 0, size, size, 18, COL.paper);
+  const redGoal = viewFlip ? 8 : 0;
+  const blueGoal = viewFlip ? 0 : 8;
+  const gap = Math.max(2, Math.round(cell * .085));
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) {
+    const color = r === redGoal ? COL.redGoal : r === blueGoal ? COL.blueGoal : COL.cell;
+    roundRect(margin + c * cell + gap / 2, margin + r * cell + gap / 2,
+      cell - gap, cell - gap, cell * .13, color);
+  }
+
+  ctx.fillStyle = COL.muted;
+  ctx.font = `600 ${Math.max(10, Math.round(cell * .24))}px ui-monospace, Consolas, monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (let c = 0; c < 9; c++) {
+    const ch = String.fromCharCode(97 + (viewFlip ? 8 - c : c));
+    ctx.fillText(ch, cx(c), margin * .52);
+  }
+  for (let r = 0; r < 9; r++) {
+    ctx.fillText(String(viewFlip ? 9 - r : r + 1), margin * .52, cy(r));
+  }
+
+  if (canPlay() && !busy && boardTool === "auto") {
+    for (const action of state.moves()) {
+      const [r, c] = viewCell(...divmod(action));
+      const radius = Math.max(2.5, cell * .085);
+      ctx.beginPath(); ctx.arc(cx(c), cy(r), radius, 0, 2 * Math.PI);
+      ctx.fillStyle = COL.move; ctx.fill();
+    }
+  }
+  if (lastAction !== null) drawLast(lastAction);
+
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    if (state.hw[r * 8 + c]) { const d = viewWall(r, c); drawWall("H", d[0], d[1]); }
+    if (state.vw[r * 8 + c]) { const d = viewWall(r, c); drawWall("V", d[0], d[1]); }
+  }
+
+  if (hover && canPlay() && !busy) {
+    const ok = legalHover();
+    ctx.globalAlpha = ok ? 1 : .3;
+    if (hover.kind === "cell") {
+      const x = margin + hover.c * cell, y = margin + hover.r * cell;
+      roundRect(x + 2.5, y + 2.5, cell - 5, cell - 5, 6, null);
+      ctx.strokeStyle = COL.move;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else {
+      drawWall(hover.kind, hover.r, hover.c, COL.ghost);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  const r = viewCell(...divmod(state.pos[0]));
+  const b = viewCell(...divmod(state.pos[1]));
+  drawPawn(r[0], r[1], COL.red);
+  drawPawn(b[0], b[1], COL.blue);
+}
+
+function divmod(pos) { return [Math.floor(pos / 9), pos % 9]; }
+
+function drawPawn(r, c, color) {
+  const x = cx(c), y = cy(r);
+  const rad = geo.cell * .33;
+  ctx.save();
+  ctx.shadowColor = "rgba(60,45,25,.28)";
+  ctx.shadowBlur = rad * .5;
+  ctx.shadowOffsetY = rad * .16;
+  const grad = ctx.createRadialGradient(x - rad * .38, y - rad * .42, rad * .15, x, y, rad);
+  grad.addColorStop(0, lighten(color, .30));
+  grad.addColorStop(.62, color);
+  grad.addColorStop(1, darken(color, .16));
+  ctx.beginPath();
+  ctx.arc(x, y, rad, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.restore();
+  ctx.beginPath();
+  ctx.arc(x, y, rad, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(255,253,247,.9)";
+  ctx.lineWidth = Math.max(1.6, rad * .11);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(x - rad * .32, y - rad * .36, rad * .22, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,.20)";
+  ctx.fill();
+}
+
+function drawWall(kind, r, c, color) {
+  const { cell, margin } = geo;
+  const t = Math.max(7, Math.round(cell * .15));
+  const gap = Math.max(2, Math.round(t * .35));
+  const fill = color || COL.wall;
+  ctx.save();
+  if (!color) {
+    ctx.shadowColor = "rgba(55,40,22,.30)";
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 2;
+  }
+  if (kind === "H") {
+    const x = margin + c * cell + gap;
+    const y = margin + (r + 1) * cell - t / 2;
+    roundRect(x, y, cell * 2 - gap * 2, t, t * .35, fill);
+    if (!color) roundRect(x + 1, y + 1, cell * 2 - gap * 2 - 2, t * .3, t * .15, "rgba(255,255,255,.10)");
+  } else {
+    const y = margin + r * cell + gap;
+    const x = margin + (c + 1) * cell - t / 2;
+    roundRect(x, y, t, cell * 2 - gap * 2, t * .35, fill);
+    if (!color) roundRect(x + 1, y + 1, t * .25, cell * 2 - gap * 2 - 2, t * .1, "rgba(255,255,255,.10)");
+  }
+  ctx.restore();
+}
+
+function drawLast(a) {
+  const { cell, margin } = geo;
+  ctx.save();
+  ctx.strokeStyle = COL.amber;
+  ctx.shadowColor = "rgba(195,146,60,.55)";
+  ctx.shadowBlur = 8;
+  if (a < N_MOVES) {
+    const [r, c] = viewCell(...divmod(a));
+    ctx.lineWidth = Math.max(2.5, cell * .06);
+    roundRect(margin + c * cell + 2.5, margin + r * cell + 2.5, cell - 5, cell - 5, 6, null);
+    ctx.stroke();
+  } else {
+    const t = Math.max(7, Math.round(cell * .15));
+    const kind = a < A_V ? "H" : "V";
+    const i = kind === "H" ? a - A_H : a - A_V;
+    const rr = Math.floor(i / 8), cc = i % 8;
+    const [r, c] = viewWall(rr, cc);
+    ctx.lineWidth = 2;
+    if (kind === "H") {
+      roundRect(margin + c * cell - 3, margin + (r + 1) * cell - t / 2 - 3.5, cell * 2 + 6, t + 7, (t + 7) * .35, null);
+    } else {
+      roundRect(margin + (c + 1) * cell - t / 2 - 3.5, margin + r * cell - 3, t + 7, cell * 2 + 6, (t + 7) * .35, null);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function roundRect(x, y, w, h, r, fill) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+}
+function lighten(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * (1 + k) + 255 * k * .2));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) * (1 + k) + 255 * k * .2));
+  const b = Math.min(255, Math.round((n & 255) * (1 + k) + 255 * k * .2));
+  return `rgb(${r},${g},${b})`;
+}
+function darken(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${Math.round(((n >> 16) & 255) * (1 - k))},${Math.round(((n >> 8) & 255) * (1 - k))},${Math.round((n & 255) * (1 - k))})`;
+}
+
+// ---------------------------------------------------------------- picking
+function pick(evt) {
+  const rect = cvs.getBoundingClientRect();
+  const x = evt.clientX - rect.left, y = evt.clientY - rect.top;
+  const gx = (x - geo.margin) / geo.cell, gy = (y - geo.margin) / geo.cell;
+  if (gx < -.45 || gy < -.45 || gx > 9.45 || gy > 9.45) return null;
+  const dx = Math.abs(gx - Math.round(gx));
+  const dy = Math.abs(gy - Math.round(gy));
+  if (boardTool !== "auto") {
+    if (gx < 0 || gy < 0 || gx > 9 || gy > 9) return null;
+    const anchor = (n) => clamp(Math.round(n) - 1, 0, 7);
+    return { kind: boardTool, r: anchor(gy), c: anchor(gx) };
+  }
+  const TH = .13;
+  const kr = Math.round(gy), kc = Math.round(gx);
+  const canH = dy < TH && kr >= 1 && kr <= 8;
+  const canV = dx < TH && kc >= 1 && kc <= 8;
+  if (canH && (!canV || dy <= dx)) return { kind: "H", r: kr - 1, c: clampAnchor(gx) };
+  if (canV) return { kind: "V", r: clampAnchor(gy), c: kc - 1 };
+  const r = Math.floor(gy), c = Math.floor(gx);
+  if (r < 0 || r > 8 || c < 0 || c > 8) return null;
+  return { kind: "cell", r, c };
+}
+function clampAnchor(v) {
+  const raw = Math.floor(v);
+  return Math.min(7, Math.max(0, v - raw < .5 ? raw - 1 : raw));
+}
+function actionOf(h) {
+  let e = h;
+  if (viewFlip) e = h.kind === "cell"
+    ? { kind: "cell", r: 8 - h.r, c: 8 - h.c }
+    : { kind: h.kind, r: 7 - h.r, c: 7 - h.c };
+  if (!e) return null;
+  if (e.kind === "cell") return e.r * 9 + e.c;
+  if (e.kind === "H") return A_H + e.r * 8 + e.c;
+  return A_V + e.r * 8 + e.c;
+}
+let actionState = null;
+let actions = [];
+function actionsFor(position) {
+  if (actionState !== position) {
+    actions = position.legal();
+    actionState = position;
+  }
+  return actions;
+}
+function legalHover() {
+  const a = actionOf(hover);
+  return a !== null && actionsFor(state).includes(a);
+}
+
+// ---------------------------------------------------------------- UI update
+function status(text, hint) {
+  ui.status.textContent = text;
+  if (hint !== undefined) ui.hint.textContent = hint;
+}
+function closeResult() {
+  if (ui.resultDialog.open) ui.resultDialog.close();
+}
+function updateResult() {
+  const finished = state.terminal;
+  const liveResult = finished && mode !== "replay";
+  ui.boardStatus.classList.toggle("complete", finished);
+  ui.resultLabel.hidden = !finished;
+  ui.btnResult.hidden = !liveResult;
+  if (!liveResult) {
+    closeResult();
+    presentedResult = null;
+  }
+  if (!finished) return;
+
+  const colour = state.winner === 0 ? "Red" : "Blue";
+  const localSide = mode === "ai" ? humanSide : mode === "room" ? mySide : null;
+  const outcome = localSide === null ? "neutral" : state.winner === localSide ? "victory" : "defeat";
+  const title = localSide === null ? `${colour} wins!` : outcome === "victory" ? "You won!" : "You lost this round";
+  const label = outcome === "victory" ? "Victory" : outcome === "defeat" ? "Defeat" : "Game complete";
+  const description = `${colour} reached the opposite edge first.`;
+  for (const element of [ui.boardStatus, ui.resultDialog]) {
+    element.dataset.winner = colour.toLowerCase();
+    element.dataset.outcome = outcome;
+  }
+  ui.resultLabel.textContent = label;
+  ui.resultEyebrow.textContent = label;
+  ui.resultTitle.textContent = title;
+  ui.resultDescription.textContent = description;
+  ui.resultMatchup.textContent = `${playerName(0)} vs ${playerName(1)}`;
+  ui.resultMoves.textContent = state.ply;
+  ui.resultWalls.textContent = 20 - state.walls[0] - state.walls[1];
+  ui.resultWinner.textContent = colour;
+  ui.btnResultNew.textContent = mode === "room" && roomRole === "guest" ? "Request rematch" : "Play again";
+  ui.btnResultNew.disabled = mode === "room" && !roomReady;
+  ui.btnResultReview.hidden = mode === "room";
+  ui.btnResultUndo.hidden = undoIndex() < 0;
+  if (liveResult) status(title, `${description} ${state.ply} moves played.`);
+}
+function openResult() {
+  if (!state.terminal || mode === "replay" || ui.resultDialog.open) return;
+  ui.resultDialog.showModal();
+}
+function presentResult() {
+  // A room resync creates fresh state objects for the same finished game.
+  const key = `${mode}:${state.winner}:${moves.map((move) => move.a).join(",")}`;
+  if (presentedResult === key || mode === "replay") return;
+  presentedResult = key;
+  openResult();
+}
+function reviewFinishedGame() {
+  if (!state.terminal || mode === "room" || mode === "replay") return;
+  const record = { moves: moves.map((move) => move.a), p0: savePlayerName(0), p1: savePlayerName(1) };
+  closeResult();
+  // Works even when automatic saving is off or browser storage is unavailable.
+  loadRecord(record, true);
+  ui.btnPrev.focus({ preventScroll: true });
+}
+function pips(el, n) {
+  if (el.childElementCount !== 10) {
+    el.innerHTML = "";
+    for (let i = 0; i < 10; i++) {
+      const d = document.createElement("div");
+      d.className = "pip";
+      el.appendChild(d);
+    }
+  }
+  [...el.children].forEach((d, i) => { d.className = "pip" + (i < n ? " on" : ""); });
+}
+function updatePlayers() {
+  ui.nameRed.textContent = playerName(0);
+  ui.nameBlue.textContent = playerName(1);
+  ui.tagRed.textContent = playerTag(0);
+  ui.tagBlue.textContent = playerTag(1);
+  ui.wallsRed.textContent = state.walls[0];
+  ui.wallsBlue.textContent = state.walls[1];
+  pips(ui.pipsRed, state.walls[0]);
+  pips(ui.pipsBlue, state.walls[1]);
+  ui.playerRed.classList.toggle("active", !state.terminal && state.turn === 0);
+  ui.playerBlue.classList.toggle("active", !state.terminal && state.turn === 1);
+  ui.playerRed.classList.toggle("winner", state.winner === 0);
+  ui.playerBlue.classList.toggle("winner", state.winner === 1);
+  ui.playerRed.dataset.winner = "red";
+  ui.playerBlue.dataset.winner = "blue";
+  ui.nameRed.title = playerName(0) + (state.winner === 0 ? " · Winner" : "");
+  ui.nameBlue.title = playerName(1) + (state.winner === 1 ? " · Winner" : "");
+}
+function updateModeButtons() {
+  for (const b of ui.seg.querySelectorAll("button")) {
+    const active = b.dataset.mode === mode;
+    b.classList.toggle("on", active);
+    b.setAttribute("aria-pressed", String(active));
+  }
+  ui.roomPanel.classList.toggle("show", mode === "room");
+}
+function updateEngineRows() {
+  const showRed = mode === "ai_ai" || (mode === "ai" && humanSide === 1);
+  const showBlue = mode === "ai_ai" || (mode === "ai" && humanSide === 0);
+  if (ui.engineCard) ui.engineCard.classList.toggle("hide", !(mode === "ai" || mode === "ai_ai"));
+  ui.engineRedRow.classList.toggle("hide", !showRed);
+  ui.engineBlueRow.classList.toggle("hide", !showBlue);
+  ui.capRed.textContent = mode === "ai" ? "OPPONENT ENGINE (RED)" : "RED ENGINE";
+  ui.capBlue.textContent = mode === "ai" ? "OPPONENT ENGINE (BLUE)" : "BLUE ENGINE";
+  ui.engineRed.value = engineCfg[engineSeat(0)];
+  ui.engineBlue.value = engineCfg[engineSeat(1)];
+  if (mode === "replay") ui.engineNote.textContent = "Review the moves or continue from this position.";
+  else if (mode === "room") ui.engineNote.textContent = "Room games are human vs human.";
+  else if (mode === "hotseat") ui.engineNote.textContent = "Two humans on one screen.";
+  else if (mode === "ai_ai") ui.engineNote.textContent = "Each side can use a different engine.";
+  else if (parseEngine(engineCfg[opponentSeat]).kind === "ext") ui.engineNote.textContent = extConfigured(opponentSeat)
+    ? extProfile(opponentSeat).allowMoveRequests
+      ? "Live external requests are enabled for this seat. The provider may charge per turn; chat sends a separate request."
+      : "Automatic external move requests are off. This seat uses local Alpha-beta; chat and Test remain explicit provider requests."
+    : "External AI selected. Open the card below to set Base URL, key, and model.";
+  else if (parseEngine(engineCfg[opponentSeat]).kind === "sigma") ui.engineNote.textContent = "The first move loads the model. Each tier is a simulation target with a time limit. Actual counts appear after each move.";
+  else if (parseEngine(engineCfg[opponentSeat]).kind === "guided") ui.engineNote.textContent = "Sigma suggests which moves Detour should search first. The model loads on the first move.";
+  else if (parseEngine(engineCfg[opponentSeat]).kind === "champion") ui.engineNote.textContent = "Claustrophobia guides the search. The browser loads the 28.5 MB model on the first move.";
+  else ui.engineNote.textContent = "Detour search runs on this device without a model download.";
+}
+function updateButtons() {
+  ui.boardTools.hidden = mode === "replay";
+  ui.btnPlay.hidden = mode !== "ai_ai";
+  ui.btnPlay.textContent = mode === "ai_ai" && running ? "Pause" : "Play";
+  ui.btnUndo.hidden = mode !== "ai" && mode !== "hotseat";
+  ui.btnUndo.disabled = undoIndex() < 0;
+  ui.btnUndo.title = mode === "ai" ? "Return to your previous turn" : "Take back one move";
+  ui.btnFlip.hidden = mode !== "ai" && mode !== "ai_ai";
+  ui.btnFlip.title = mode === "ai" ? "Switch colours from the current position" : "Swap engines and start a new game";
+  ui.btnNew.disabled = mode === "room" && !roomReady;
+  ui.btnNew.textContent = mode === "room" && roomRole === "guest" ? "Request rematch" : "New game";
+  const total = replayStates ? replayStates.length - 1 : 0;
+  ui.replayCard.hidden = !replayStates;
+  ui.btnPrev.disabled = replayIdx === 0;
+  ui.btnNext.disabled = replayIdx === total;
+  ui.btnAuto.disabled = !replayPlaying && replayIdx === total;
+  ui.replayPosition.max = total;
+  ui.replayPosition.value = replayIdx;
+  ui.replayPosition.disabled = total === 0;
+  ui.btnContinue.disabled = !replayStates || state.terminal;
+  ui.continueNote.textContent = state.terminal ? "Game over here. Go back a move to continue." : "";
+  ui.btnImport.disabled = mode === "room";
+  ui.btnExport.disabled = mode === "room";
+  ui.btnAuto.textContent = replayPlaying ? "Stop" : "Auto";
+  ui.btnLoad.disabled = !selectedSavedId || mode === "room";
+  ui.btnDelete.disabled = !savedGames.length;
+  ui.replayLabel.textContent = replayStates ? `move ${replayIdx} / ${total}` : "move 0 / 0";
+}
+function renderLog() {
+  const red = [], blue = [];
+  for (const m of moves) (m.side === 0 ? red : blue).push(m);
+  ui.log.innerHTML = `<div class="h">RED</div><div class="h">BLUE</div>` +
+    Array.from({ length: Math.max(red.length, blue.length) }, (_, i) => {
+      const a = red[i], b = blue[i];
+      return `<div>${a ? `<span class="n">${a.n}</span><span class="r">${a.text}</span>` : ""}</div>` +
+             `<div>${b ? `<span class="n">${b.n}</span><span class="b">${b.text}</span>` : ""}</div>`;
+    }).join("");
+  ui.log.scrollTop = ui.log.scrollHeight;
+  ui.moveCount.textContent = `${moves.length} move${moves.length === 1 ? "" : "s"}`;
+}
+function formatDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso || "").slice(0, 16);
+  const two = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+function renderSaved() {
+  ui.savedList.innerHTML = "";
+  if (!savedGames.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "No games saved yet.";
+    ui.savedList.appendChild(e);
+    selectedSavedId = null;
+    return;
+  }
+  for (const rec of savedGames) {
+    const b = document.createElement("button");
+    b.className = "saved-row" + (rec.id === selectedSavedId ? " selected" : "");
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = formatDate(rec.date);
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = `${rec.winner === 0 ? "red" : rec.winner === 1 ? "blue" : "unfinished"} · ${rec.plies} plies`;
+    b.append(when, who);
+    b.title = `${rec.p0 || "Red"} vs ${rec.p1 || "Blue"}`;
+    b.addEventListener("click", () => { selectedSavedId = rec.id; renderSaved(); updateButtons(); });
+    ui.savedList.appendChild(b);
+  }
+}
+function render() {
+  $("speedCard").hidden = mode !== "ai_ai";
+  updatePlayers();
+  updateModeButtons();
+  updateEngineRows();
+  updateExtVisibility();
+  updateButtons();
+  updateResult();
+  renderLog();
+  draw();
+}
+
+// ---------------------------------------------------------------- sigma
+function loadRuntime() {
+  if (globalThis.ort) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = new URL("./vendor/ort/ort.min.js", import.meta.url);
+    script.onload = resolve;
+    script.onerror = () => { script.remove(); reject(new Error("Could not load the local model runtime")); };
+    document.head.append(script);
+  });
+}
+function withTimeout(work, ms, message = "Model loading timed out") {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+function ensureSigma() {
+  if (sigmaNet) return Promise.resolve(sigmaNet);
+  if (sigmaPromise) return sigmaPromise;
+  sigmaPromise = (async () => {
+    await withTimeout(loadRuntime(), 10_000);
+    if (navigator.gpu) {
+      try {
+        const net = await withTimeout(SigmaNet.load("./models/sigma_9x9_batch.onnx", null,
+          { executionProviders: ["webgpu"] }), 15_000);
+        try {
+          const opening = State.new();
+          const moved = opening.doAction(67);
+          const [single, batch] = await withTimeout((async () => [
+            await net.raw(moved), await net.rawBatch([opening, moved]),
+          ])(), 5_000);
+          if (!(Math.abs(single[1] - batch[1].value) < .01) ||
+              single[0].some((value, i) => !(Math.abs(value - batch[1].logits[i]) < .01))) {
+            throw new Error("WebGPU batch output differed from single-position inference");
+          }
+          sigmaBatch = true;
+          return sigmaNet = net;
+        } catch (error) {
+          void net.session.release().catch(() => {});
+          throw error;
+        }
+      } catch (err) {
+        console.warn("WebGPU path failed, falling back to wasm", err);
+      }
+    }
+    sigmaBatch = false;
+    return sigmaNet = await withTimeout(SigmaNet.load("./models/sigma_9x9.onnx"), 15_000);
+  })().finally(() => { sigmaPromise = null; });
+  return sigmaPromise;
+}
+function ensureChampion() {
+  championPromise ??= (async () => {
+    await withTimeout(loadRuntime(), 10_000);
+    return withTimeout(ClaustrophobiaNet.load("./models/claustrophobia_v1_3_1.onnx"), 30_000);
+  })().catch((error) => {
+    championPromise = null;
+    throw error;
+  });
+  return championPromise;
+}
+function sigmaAgentFor(side, cfg) {
+  const sims = cfg.sims;
+  const key = `${sigmaBatch ? "b" : "s"}:${sims}`;
+  let ag = sigmaAgents[side];
+  if (!ag || ag.__key !== key) {
+    ag = sigmaBatch
+      ? new SigmaBatchAgent(sigmaNet, { sims, batch: 8 })
+      : new SigmaAgent(sigmaNet, { sims });
+    ag.__key = key;
+    sigmaAgents[side] = ag;
+  }
+  return ag;
+}
+function searchAlphaBeta(position, { depth, ms, policy, policyWeight }) {
+  return new Promise((resolve, reject) => {
+    const worker = alphaWorker ??= new Worker(new URL("./alphabeta-worker.js", import.meta.url), { type: "module" });
+    const fail = (error) => {
+      worker.terminate();
+      alphaWorker = null;
+      cancelAlphaSearch = null;
+      reject(error);
+    };
+    worker.onmessage = ({ data }) => {
+      cancelAlphaSearch = null;
+      if (data.error) fail(new Error(data.error));
+      else resolve(data);
+    };
+    worker.onerror = (event) => fail(new Error(event.message || "Alpha-beta could not start"));
+    cancelAlphaSearch = () => fail(new DOMException("Search cancelled", "AbortError"));
+    const { pos, walls, hw, vw, turn, ply, winner } = position;
+    const seen = new Map();
+    for (const previous of history) {
+      const key = positionKey(previous);
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    worker.postMessage({ position: { pos, walls, hw, vw, turn, ply, winner }, depth, ms, policy, policyWeight, seen: [...seen] });
+  });
+}
+function resetAgents() {
+  for (const ag of Object.values(sigmaAgents)) if (ag) ag.reset();
+}
+
+// ---------------------------------------------------------------- external AI
+let extFormOpen = !(extProfiles[extSeat].baseUrl && extProfiles[extSeat].model);
+let extFieldsSeat = null;
+function extProfile(seat = extSeat) { return extProfiles[seat]; }
+function extConfigured(seat = extSeat) { const p = extProfile(seat); return !!(p.baseUrl && p.model); }
+function persistExt() {
+  const payload = {
+    profiles: extProfiles.map((p, i) => {
+      const out = { baseUrl: p.baseUrl, protocol: p.protocol, fullEndpoint: !!p.fullEndpoint,
+        model: p.model, remember: !!p.remember, allowImage: !!p.allowImage,
+        allowMoveRequests: !!p.allowMoveRequests };
+      if (p.remember) out.apiKey = p.apiKey;
+      try { sessionStorage.setItem(EXT_SESSION_PREFIX + i, p.apiKey); } catch (e) {}
+      return out;
+    }),
+  };
+  try { localStorage.setItem(EXT_KEY, JSON.stringify(payload)); } catch (e) {}
+}
+// Also removes legacy unremembered keys from persistent storage on startup.
+persistExt();
+
+function clearAiChat() {
+  chatController?.abort();
+  chatHistory = chatHistories[extSeat] = [];
+  renderExt();
+}
+function forgetExternalKey() {
+  cancelAi();
+  chatController?.abort();
+  extProfile().apiKey = "";
+  extProfile().remember = false;
+  extProfile().allowMoveRequests = false;
+  ui.extKey.value = "";
+  ui.extRemember.checked = false;
+  ui.extAllowMoves.checked = false;
+  persistExt();
+  try { sessionStorage.removeItem(EXT_SESSION_PREFIX + extSeat); } catch {}
+  extMoveCache.clear();
+  ui.extNote.textContent = "API key removed from this tab and this device. This does not revoke it at the provider.";
+  renderExt();
+}
+function clearLocalData() {
+  if (!window.confirm("Delete this app's saved games, preferences and API settings on this device? This cannot delete data already sent to third parties.")) return;
+  cancelAi();
+  chatController?.abort();
+  resetPeer();
+  for (const key of [PREF_KEY, SAVE_KEY, EXT_KEY]) {
+    try { localStorage.removeItem(key); } catch {}
+  }
+  for (let seat = 0; seat < 2; seat++) {
+    try { sessionStorage.removeItem(EXT_SESSION_PREFIX + seat); } catch {}
+  }
+  location.reload();
+}
+function externalColour() {
+  return (mode === "ai" ? 1 - humanSide : extSeat) === 0 ? "RED" : "BLUE";
+}
+function renderExt() {
+  const p = extProfile();
+  const configured = extConfigured();
+  ui.extForm.classList.toggle("hide", !extFormOpen);
+  if (extFieldsSeat !== extSeat) {
+    ui.extBase.value = p.baseUrl;
+    ui.extProtocol.value = p.protocol;
+    ui.extFullEndpoint.checked = p.fullEndpoint;
+    ui.extKey.value = p.apiKey;
+    ui.extModel.value = p.model;
+    ui.extRemember.checked = p.remember;
+    ui.extImage.checked = p.allowImage;
+    ui.extAllowMoves.checked = p.allowMoveRequests;
+    extFieldsSeat = extSeat;
+  }
+  ui.extSeat.value = String(extSeat);
+  if (configured) {
+    let host = p.baseUrl;
+    try { host = new URL(p.baseUrl).host; } catch (e) {}
+    ui.extSummary.textContent = `${externalColour()} · ${p.model} · ${host}`;
+  } else {
+    ui.extSummary.textContent = `${externalColour()} · not configured. Supports Chat Completions, Responses and Anthropic Messages.`;
+  }
+  ui.btnExtToggle.textContent = extFormOpen ? "close" : "settings";
+  ui.chatStatus.textContent = chatBusy ? "thinking" : configured ? "ready" : "offline";
+  ui.btnChatSend.disabled = !configured || chatBusy;
+  ui.btnExtForget.disabled = !p.apiKey;
+  ui.extAllowMoves.disabled = !configured;
+  ui.btnChatClear.disabled = !chatHistory.length && !chatBusy;
+  ui.chatInput.disabled = !configured;
+  ui.extSeat.disabled = chatBusy;
+  renderChat();
+}
+function activeExternalSeats() {
+  const seats = mode === "ai_ai" ? [0, 1] : mode === "ai" ? [opponentSeat] : [];
+  return seats.filter((side) => parseEngine(engineCfg[side]).kind === "ext");
+}
+function setExtSeat(seat) {
+  extSeat = seat === 0 ? 0 : 1;
+  chatHistory = chatHistories[extSeat];
+  extFormOpen = !extConfigured(extSeat);
+  renderExt();
+}
+function updateExtVisibility() {
+  const seats = activeExternalSeats();
+  const show = seats.length > 0;
+  ui.extCard.classList.toggle("hide", !show);
+  if (!show) return;
+  if (!seats.includes(extSeat)) {
+    extSeat = seats[0];
+    chatHistory = chatHistories[extSeat];
+  }
+  ui.extSeatRow.classList.toggle("hide", !(mode === "ai_ai" && seats.length > 1));
+  if (!extConfigured()) extFormOpen = true;
+  renderExt();
+}
+function readExtFields() {
+  const baseUrl = ui.extBase.value.trim();
+  const model = ui.extModel.value.trim();
+  if (!baseUrl) { ui.extNote.textContent = "Base URL is required."; return false; }
+  if (!validExtBase(baseUrl)) {
+    ui.extNote.textContent = "Use a URL without embedded credentials, a query or a fragment. Remote endpoints require HTTPS; HTTP is only allowed for localhost.";
+    return false;
+  }
+  if (!model) { ui.extNote.textContent = "Model is required."; return false; }
+  const profile = { baseUrl, protocol: ui.extProtocol.value, fullEndpoint: ui.extFullEndpoint.checked,
+    model, apiKey: ui.extKey.value.trim(), remember: ui.extRemember.checked,
+    allowImage: ui.extImage.checked, allowMoveRequests: ui.extAllowMoves.checked };
+  try { extEndpoint(profile); } catch (error) { ui.extNote.textContent = error.message; return false; }
+  return profile;
+}
+function saveExtFromFields() {
+  const profile = readExtFields();
+  if (!profile) return;
+  const previous = extProfile();
+  if (previous.baseUrl !== profile.baseUrl || previous.protocol !== profile.protocol || previous.fullEndpoint !== profile.fullEndpoint ||
+      previous.model !== profile.model || previous.apiKey !== profile.apiKey) {
+    chatHistory = chatHistories[extSeat] = [];
+  }
+  extProfiles[extSeat] = profile;
+  extMoveCache.clear();
+  if (engineSeat(state.turn) === extSeat && extMoveController) cancelAi();
+  persistExt();
+  extFormOpen = false;
+  ui.extNote.textContent = profile.remember ? "Saved. The key is remembered on this device." : "Saved. The key is available in this tab session.";
+  renderExt();
+  render();
+  scheduleAi();
+}
+function extComplete(messages, options = {}, profile = extProfile()) {
+  return completeExternal(messages, options, profile);
+}
+function boardContext(position, records) {
+  const legal = position.terminal ? [] : actionsFor(position).map(actionStr);
+  const horizontal = [], vertical = [];
+  for (let i = 0; i < 64; i++) {
+    if (position.hw[i]) horizontal.push(actionStr(A_H + i));
+    if (position.vw[i]) vertical.push(actionStr(A_V + i));
+  }
+  const result = position.winner === null ? null : position.winner === 0 ? "Red" : "Blue";
+  return JSON.stringify({
+    pawns: { Red: actionStr(position.pos[0]), Blue: actionStr(position.pos[1]) },
+    wallsLeft: { Red: position.walls[0], Blue: position.walls[1] },
+    placedWalls: [...horizontal, ...vertical],
+    sideToMove: position.terminal ? null : position.turn === 0 ? "Red" : "Blue",
+    movesPlayed: position.ply, result,
+    recentMoves: records.slice(-12).map((m) => ({ side: m.side === 0 ? "Red" : "Blue", action: m.text })),
+    legalActions: legal,
+  });
+}
+const EXTERNAL_RULES = "Quoridor 9×9: coordinates a–i and 1–9 are unflipped. Red aims for row 1, Blue row 9. " +
+  "An H e5 wall spans columns e and f between rows 5 and 6. A V e5 wall spans rows 5 and 6 between columns e and f. " +
+  "A pawn can step, jump over an adjacent opponent, or sidestep it when a straight jump is blocked. " +
+  "Follow the legalActions list. The first pawn to reach its goal row wins.";
+function parseExternalReply(content, legal) {
+  const text = content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1");
+  let reply;
+  try { reply = JSON.parse(text); } catch { reply = { move: text }; }
+  if (!reply || typeof reply !== "object") reply = { move: reply };
+  const move = reply.move ?? reply.action ?? reply.best_move;
+  const label = typeof move === "string" ? move.trim().replace(/\s+/g, " ").toLowerCase() : "";
+  const action = typeof move === "number" ? (legal.includes(move) ? move : undefined)
+    : legal.find((id) => actionStr(id).toLowerCase() === label);
+  const annotation = reply.say ?? reply.comment ?? reply.message;
+  const say = typeof annotation === "string" ? annotation.trim().slice(0, 500) : "";
+  const plan = Array.isArray(reply.plan) ? reply.plan.filter((item) => typeof item === "string")
+    .slice(0, 6).map((item) => item.trim().slice(0, 140)).filter(Boolean) : [];
+  return { action, say, plan, wantBoard: reply.want_board === true };
+}
+function captureBoardImage() {
+  const out = document.createElement("canvas");
+  const S = 512;
+  out.width = S; out.height = S;
+  const g = out.getContext("2d");
+  g.fillStyle = COL.paper;
+  g.fillRect(0, 0, S, S);
+  g.drawImage(cvs, 0, 0, S, S);
+  return out.toDataURL("image/jpeg", .72);
+}
+async function externalMoveAction(position, side, signal) {
+  const profile = extProfile(engineSeat(side));
+  const legal = actionsFor(position);
+  const allowImage = profile.allowImage;
+  const context = boardContext(position, moves);
+  const cacheKey = JSON.stringify([side, profile.baseUrl, profile.protocol, profile.fullEndpoint, profile.model, allowImage, context]);
+  const hit = extMoveCache.get(cacheKey);
+  if (hit) return { ...hit, cached: true, cacheRead: 0 };
+  const imageRule = allowImage ? 'If a rendered board is necessary, reply {"want_board":true} with no move.' : "Make the decision using the supplied position.";
+  const base = [
+    { role: "system", content: `${EXTERNAL_RULES} Return one legal next action as JSON, for example {"move":"e8","say":"Short reason","plan":["Optional idea"]}. The plan is commentary only. ${imageRule}` },
+    { role: "user", content: context },
+  ];
+  let messages = base;
+  let usedImage = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await extComplete(messages, { temperature: 0, maxTokens: 180, signal }, profile);
+    signal.throwIfAborted();
+    const parsed = parseExternalReply(res.content, legal);
+    if (parsed.action !== undefined) {
+      const result = { ...parsed, usedImage, cacheRead: res.cacheRead };
+      if (extMoveCache.size >= 60) extMoveCache.delete(extMoveCache.keys().next().value);
+      extMoveCache.set(cacheKey, result);
+      return result;
+    }
+    if (!parsed.wantBoard || !allowImage || usedImage) break;
+    usedImage = true;
+    messages = [...base, { role: "assistant", content: res.content }, {
+      role: "user", content: [
+        { type: "text", text: "This is the current board image. Read the coordinate labels for orientation. Reply with one action from legalActions." },
+        { type: "image_url", image_url: { url: captureBoardImage() } },
+      ],
+    }];
+  }
+  throw new Error("The model did not return one legal action");
+}
+function noteExternalMove(action, say, plan = [], seat = extSeat) {
+  if (!say && !plan.length) return;
+  const suffix = plan.length ? ` Plan: ${plan.join(" → ")}` : "";
+  const arr = chatHistories[seat];
+  arr.push({ role: "assistant", content: `${action}: ${say}${suffix}`, seat });
+  if (arr.length > 24) arr.splice(0, arr.length - 24);
+  if (seat === extSeat) renderChat();
+}
+function renderChat() {
+  ui.chatLog.innerHTML = "";
+  if (!chatHistory.length) {
+    const e = document.createElement("div");
+    e.className = "chat-empty";
+    e.textContent = extConfigured()
+      ? "Chat with the configured model. The current board is attached to each question."
+      : "Configure an endpoint above to start chatting.";
+    ui.chatLog.appendChild(e);
+    return;
+  }
+  for (const m of chatHistory) {
+    const d = document.createElement("div");
+    d.className = "chat-msg " + (m.role === "user" ? "user" : "bot");
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = m.role === "user" ? "YOU" : (m.cached ? "EXTERNAL · RESULT CACHE" : "EXTERNAL");
+    if (m.cacheRead) meta.textContent += ` · PROMPT CACHE ${m.cacheRead} TOK`;
+    meta.textContent += ` · SEAT ${externalColour()}`;
+    const body = document.createElement("span");
+    body.textContent = m.content;
+    d.append(meta, body);
+    ui.chatLog.appendChild(d);
+  }
+  ui.chatLog.scrollTop = ui.chatLog.scrollHeight;
+}
+async function sendChat() {
+  const text = ui.chatInput.value.trim().slice(0, 500);
+  if (!text || chatBusy) return;
+  if (!extConfigured()) { status("Chat needs an external endpoint", "open settings in the External AI card"); return; }
+  chatBusy = true;
+  const controller = chatController = new AbortController();
+  const seat = extSeat;
+  const conversation = chatHistories[seat];
+  conversation.push({ role: "user", content: text });
+  ui.chatInput.value = "";
+  renderChat();
+  renderExt();
+  try {
+    const prior = conversation.slice(0, -1).filter((m) => !m.failed).slice(-8).map((m) => ({ role: m.role, content: m.content }));
+    const messages = [
+      { role: "system", content: `${EXTERNAL_RULES} You are a Quoridor assistant. Use the board attached to the newest question. Keep replies under 120 words.` },
+      ...prior,
+      { role: "user", content: `Current board:\n${boardContext(state, moves)}\n\nQuestion: ${text}` },
+    ];
+    const { content, cacheRead } = await extComplete(messages, { temperature: 0.3, maxTokens: 420, signal: controller.signal }, extProfile(seat));
+    if (controller.signal.aborted) return;
+    conversation.push({ role: "assistant", content, cacheRead });
+    if (conversation.length > 24) conversation.splice(0, conversation.length - 24);
+  } catch (err) {
+    if (!controller.signal.aborted) conversation.push({ role: "assistant", failed: true, content: "Request failed: " + err.message });
+  } finally {
+    if (chatController === controller) { chatController = null; chatBusy = false; }
+    renderChat();
+    renderExt();
+  }
+}
+
+async function chooseFor(side, position, epoch) {
+  const seat = engineSeat(side);
+  const cfg = parseEngine(engineCfg[seat]);
+  if (cfg.kind !== "ext" && position.walls[0] + position.walls[1] <= 1) {
+    const { action, stats } = await searchAlphaBeta(position, { depth: 6, ms: cfg.ms ?? 1200 });
+    if (epoch !== aiEpoch) return null;
+    lastInfo = `Solved endgame · ${stats.ms} ms`;
+    return action;
+  }
+  if (cfg.kind === "ext") {
+    if (!extProfile(seat).allowMoveRequests) {
+      const { action, stats } = await searchAlphaBeta(position, { depth: 6, ms: 1200 });
+      if (epoch !== aiEpoch) return null;
+      lastInfo = `External move requests off · local Alpha-beta · depth ${stats.depth} · ${stats.ms} ms`;
+      return action;
+    }
+    const controller = new AbortController();
+    extMoveController = controller;
+    let r;
+    try { r = await externalMoveAction(position, side, controller.signal); }
+    finally { if (extMoveController === controller) extMoveController = null; }
+    if (epoch !== aiEpoch) return null;
+    lastExtSay = r.say || "";
+    lastInfo = `external ${extProfile(seat).model}${r.cached ? " · result cache" : ""}${r.cacheRead ? ` · prompt cache ${r.cacheRead} tok` : ""}${r.usedImage ? " · vision" : ""}`;
+    noteExternalMove(actionStr(r.action), r.say, r.plan, seat);
+    return r.action;
+  }
+  if (cfg.kind === "sigma") {
+    const search = sigmaQueue.then(async () => {
+      if (epoch !== aiEpoch) return null;
+      await ensureSigma();
+      if (epoch !== aiEpoch) return null;
+      const ag = sigmaAgentFor(side, cfg);
+      const t0 = performance.now();
+      const budget = cfg.sims >= 2048 ? 4000 : cfg.sims >= 1024 ? 3200 : cfg.sims >= 512 ? 2400 : 1400;
+      const a = await ag.choose(position, {
+        temperature: 0,
+        ms: budget,
+        cancelled: () => epoch !== aiEpoch,
+        yieldToUI: true,
+      });
+      if (epoch !== aiEpoch) return null;
+      lastInfo = ag.lastSims || !ag.lastTactic
+        ? `Sigma · ${ag.lastSims}/${cfg.sims} simulations · ${sigmaBatch ? "GPU" : "CPU"} · ${Math.round(performance.now() - t0)} ms`
+        : `Sigma · ${ag.lastTactic}`;
+      return a;
+    });
+    sigmaQueue = search.catch(() => {});
+    return search;
+  }
+  if (cfg.kind === "guided" || cfg.kind === "champion") {
+    const champion = cfg.kind === "champion";
+    const search = sigmaQueue.then(() => searchGuided(position, {
+      ms: cfg.ms,
+      loadNet: champion ? ensureChampion : ensureSigma,
+      search: (options) => searchAlphaBeta(position, { depth: cfg.depth, policyWeight: champion ? 220 : 170, ...options }),
+      cancelled: () => epoch !== aiEpoch,
+      onModelError: (error) => console.warn("Guided policy unavailable; using Detour", error),
+    }));
+    sigmaQueue = search.catch(() => {});
+    const result = await search;
+    if (!result || epoch !== aiEpoch) return null;
+    const label = result.guided ? searchName(cfg.kind) : "Alpha-beta";
+    lastInfo = result.stats.endgame ? `Solved endgame · ${result.ms} ms` : `${label} · depth ${result.stats.depth} · ${result.ms} ms`;
+    return result.action;
+  }
+  const { action: a, stats: st } = await searchAlphaBeta(position, cfg);
+  if (epoch !== aiEpoch) return null;
+  lastInfo = st.endgame ? `Solved endgame · ${st.ms} ms` : `Alpha-beta · depth ${st.depth} · ${st.ms} ms`;
+  return a;
+}
+
+// ---------------------------------------------------------------- game flow
+function canPlay() {
+  if (!state || state.terminal) return false;
+  if (mode === "hotseat") return true;
+  if (mode === "room") return roomReady && state.turn === mySide;
+  if (mode === "ai") return state.turn === humanSide;
+  return false;
+}
+function turnName() { return state.turn === 0 ? "Red" : "Blue"; }
+function boardHint() {
+  return boardTool === "auto" ? "Select a highlighted square or a gap to place a wall."
+    : "Select the intersection at the centre of the wall.";
+}
+function humanTurn() {
+  if (!state || state.terminal) return;
+  busy = false;
+  render();
+  if (mode === "room") {
+    if (state.turn === mySide) status(`Your move (${turnName()})`, boardHint());
+    else status("Waiting for the other player", "");
+    return;
+  }
+  if (canPlay()) status(`Your move (${turnName()})`,
+    boardHint() + (lastInfo ? `   ·   ${lastInfo}` : ""));
+}
+function clearAiTimer() {
+  if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
+}
+function cancelAi() {
+  aiEpoch++;
+  cancelAlphaSearch?.();
+  extMoveController?.abort();
+  clearAiTimer();
+  busy = false;
+}
+function scheduleAi(delay = 0) {
+  clearAiTimer();
+  if (!state || state.terminal) return;
+  if (mode !== "ai" && mode !== "ai_ai") return;
+  if (mode === "ai" && state.turn === humanSide) return;
+  if (mode === "ai_ai" && !running) return;
+  const epoch = aiEpoch;
+  aiTimer = setTimeout(() => { if (epoch === aiEpoch) aiTurn(); }, Math.max(0, delay));
+}
+async function aiTurn() {
+  if (!state || state.terminal || busy) return;
+  if (mode === "ai" && state.turn === humanSide) return;
+  if (mode === "ai_ai" && !running) return;
+  const epoch = aiEpoch;
+  const position = state;
+  const side = position.turn;
+  const seat = engineSeat(side);
+  const kind = parseEngine(engineCfg[seat]).kind;
+  if (kind === "ext" && !extConfigured(seat)) {
+    if (mode === "ai_ai") running = false;
+    busy = false;
+    status("External AI is not configured",
+      `${side === 0 ? "Red" : "Blue"} seat needs a Base URL and model in the endpoint card`);
+    updateButtons();
+    return;
+  }
+  busy = true;
+  updatePlayers();
+  updateButtons();
+  const extMovesOff = kind === "ext" && !extProfile(seat).allowMoveRequests;
+  status(`${engineName(side)} is thinking`, (kind === "sigma" || kind === "guided" || kind === "champion")
+    ? ((kind === "champion" ? championPromise : sigmaNet) ? "Searching moves on this device" : "Loading the local AI model for the first move")
+    : kind === "ext" ? extMovesOff ? "External calls are off · using local Alpha-beta" : "requesting a move from your configured endpoint"
+    : "alpha-beta search");
+  await new Promise((r) => setTimeout(r, 35));
+  if (epoch !== aiEpoch) return;
+  let a = null;
+  try {
+    a = await chooseFor(side, position, epoch);
+  } catch (err) {
+    if (epoch !== aiEpoch) return;
+    console.error(err);
+    if (kind === "ext") {
+      status("External AI unavailable", "using local alpha-beta for this move; check the endpoint card");
+      lastInfo = "External AI failed · local Alpha-beta played";
+      ui.extNote.textContent = err.message;
+      try { ({ action: a } = await searchAlphaBeta(position, { depth: 6, ms: 1200 })); }
+      catch (e) { a = position.moves()[0]; }
+    } else {
+      status("Engine unavailable", "switching that seat to local Alpha-beta");
+      engineCfg[seat] = "ab:6:1200";
+      updateEngineRows();
+      try { ({ action: a } = await searchAlphaBeta(position, parseEngine(engineCfg[seat]))); }
+      catch (e) { a = position.moves()[0]; }
+    }
+  }
+  if (epoch !== aiEpoch) return;
+  if (!actionsFor(position).includes(a)) {
+    a = position.moves()[0];
+    if (a === undefined) { busy = false; render(); return; }
+  }
+  busy = false;
+  const over = applyAction(a);
+  if (!over) afterMove();
+}
+function afterMove() {
+  if (!state || state.terminal) return;
+  if (mode === "ai") {
+    if (state.turn === humanSide) humanTurn();
+    else scheduleAi(0);
+  } else if (mode === "hotseat") {
+    humanTurn();
+  } else if (mode === "ai_ai") {
+    if (running) scheduleAi(speed * 1000);
+    else { render(); status(`${turnName()} to move`, "autoplay paused"); }
+  } else if (mode === "room") {
+    if (state.turn === mySide) humanTurn();
+    else status("Waiting for the other player", "");
+  }
+}
+function applyAction(a, { remote = false } = {}) {
+  if (!state || state.terminal || !state.legal().includes(a)) return false;
+  const before = state;
+  const side = before.turn;
+  const beforePly = before.ply;
+  state = state.doAction(a);
+  history.push(state);
+  lastAction = a;
+  for (const ag of Object.values(sigmaAgents)) if (ag) ag.advance(a);
+  moves.push({ n: Math.floor(beforePly / 2) + 1, side, a, text: actionStr(a) });
+  if (!remote) netSend({ t: "move", a, ply: beforePly });
+  if (state.terminal) { finish(); return true; }
+  render();
+  return false;
+}
+function finish() {
+  clearAiTimer();
+  running = false;
+  busy = false;
+  if (mode !== "replay" && mode !== "room") saveFinishedGame();
+  render();
+  presentResult();
+}
+function newGame({ broadcast = true } = {}) {
+  if (mode === "replay") { setMode("ai"); return; }
+  if (mode === "room" && roomRole === "guest" && broadcast) {
+    if (roomReady) { netSend({ t: "askRestart" }); roomMsg("Rematch requested. Waiting for the host."); }
+    return;
+  }
+  cancelAi();
+  replayPlaying = false;
+  replayTimer = null;
+  state = State.new();
+  history = [state];
+  moves = [];
+  lastAction = null;
+  busy = false;
+  hover = null;
+  lastInfo = "";
+  lastExtSay = "";
+  savedLines = new Set();
+  resetAgents();
+  updateViewFlip();
+  render();
+  if (mode === "room") {
+    if (broadcast && roomRole === "host") syncRoom();
+    if (roomReady) afterMove();
+    return;
+  }
+  if (mode === "ai") {
+    if (state.turn === humanSide) humanTurn();
+    else scheduleAi(0);
+  } else if (mode === "ai_ai") {
+    running = true;
+    updateButtons();
+    status(`${engineName(0)} vs ${engineName(1)}`, "autoplay running");
+    scheduleAi(speed * 1000);
+  } else if (mode === "hotseat") {
+    humanTurn();
+  }
+}
+function updateViewFlip() {
+  viewFlip = mode === "ai" && humanSide === 1 && viewBottomSetting;
+  if (geo) draw();
+}
+function undoIndex() {
+  if (mode === "hotseat") return history.length - 2;
+  if (mode !== "ai") return -1;
+  for (let index = history.length - 2; index >= 0; index--) {
+    if (history[index].turn === humanSide) return index;
+  }
+  return -1;
+}
+function refreshLocalPosition() {
+  lastAction = moves.at(-1)?.a ?? null;
+  hover = null;
+  lastInfo = "";
+  lastExtSay = "";
+  sigmaAgents = { 0: null, 1: null };
+  updateViewFlip();
+  render();
+  afterMove();
+}
+function undo() {
+  const index = undoIndex();
+  if (index < 0) return;
+  cancelAi();
+  state = history[index];
+  history.length = index + 1;
+  moves.length = index;
+  refreshLocalPosition();
+}
+function flipSides() {
+  if (mode === "ai") {
+    cancelAi();
+    humanSide = 1 - humanSide;
+    persistPrefs();
+    refreshLocalPosition();
+  } else if (mode === "ai_ai") {
+    [engineCfg[0], engineCfg[1]] = [engineCfg[1], engineCfg[0]];
+    persistPrefs();
+    newGame();
+  }
+}
+function saveFinishedGame() {
+  if (!saveEnabled) return;
+  const actions = moves.map((move) => move.a);
+  const line = actions.join(",");
+  if (savedLines.has(line)) return;
+  savedLines.add(line);
+  const rec = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    date: new Date().toISOString(),
+    mode, p0: savePlayerName(0), p1: savePlayerName(1),
+    winner: state.winner, moves: actions, plies: actions.length,
+  };
+  savedGames.unshift(rec);
+  if (savedGames.length > MAX_SAVED) savedGames.length = MAX_SAVED;
+  persistSaved();
+  selectedSavedId = rec.id;
+  renderSaved();
+  updateButtons();
+}
+
+// ---------------------------------------------------------------- replay
+function clearReplay() {
+  replayPlaying = false;
+  if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+  replayStates = null;
+  replayMoves = [];
+  replayRecord = null;
+  replayIdx = 0;
+}
+function loadRecord(rec, atEnd = false) {
+  if (!rec || !Array.isArray(rec.moves)) {
+    throw new Error("Choose a Quoridor game file with a move list.");
+  }
+  const states = [State.new()];
+  const records = [];
+  for (const [index, action] of rec.moves.entries()) {
+    const position = states.at(-1);
+    if (position.terminal || !position.legal().includes(action)) {
+      throw new Error(`Move ${index + 1} is invalid for that position.`);
+    }
+    states.push(position.doAction(action));
+    records.push({ n: Math.floor(index / 2) + 1, side: position.turn, a: action, text: actionStr(action) });
+  }
+  if (mode !== "replay") ui.continueMode.value = mode === "hotseat" ? "hotseat" : (humanSide === 0 ? "red" : "blue");
+  cancelAi();
+  clearReplay();
+  mode = "replay";
+  running = false;
+  hover = null;
+  replayStates = states;
+  replayMoves = records;
+  replayRecord = rec;
+  updateViewFlip();
+  setReplay(atEnd ? records.length : 0);
+  ui.replayCard.scrollIntoView({ block: "nearest" });
+}
+function continueReplay() {
+  if (!replayStates || state.terminal) return;
+  cancelAi();
+  history = replayStates.slice(0, replayIdx + 1);
+  const playAs = ui.continueMode.value;
+  clearReplay();
+  mode = playAs === "hotseat" ? "hotseat" : "ai";
+  if (mode === "ai") humanSide = playAs === "blue" ? 1 : 0;
+  running = false;
+  savedLines = new Set();
+  persistPrefs();
+  refreshLocalPosition();
+  ui.btnNew.focus();
+}
+function setReplay(idx) {
+  if (!replayStates) return;
+  replayIdx = clamp(idx, 0, replayStates.length - 1);
+  state = replayStates[replayIdx];
+  moves = replayMoves.slice(0, replayIdx);
+  lastAction = moves.length ? moves[moves.length - 1].a : null;
+  render();
+  const players = `${replayRecord.p0 || "Red"} vs ${replayRecord.p1 || "Blue"}`;
+  const result = state.winner === null ? `${turnName()} to move` : `${state.winner === 0 ? "Red" : "Blue"} wins`;
+  status(`${result} · move ${replayIdx}`, players);
+}
+function jumpReplay(index) {
+  if (!replayStates) return;
+  replayPlaying = false;
+  clearTimeout(replayTimer);
+  replayTimer = null;
+  setReplay(index);
+}
+function toggleReplayAuto() {
+  if (!replayStates) return;
+  replayPlaying = !replayPlaying;
+  scheduleReplay();
+  updateButtons();
+}
+function scheduleReplay() {
+  clearTimeout(replayTimer);
+  replayTimer = null;
+  if (!replayPlaying) return;
+  replayTimer = setTimeout(() => {
+    const next = replayIdx + 1;
+    if (next >= replayStates.length - 1) replayPlaying = false;
+    setReplay(next);
+    scheduleReplay();
+  }, replaySpeed * 1000);
+}
+function loadSelectedSaved() {
+  if (mode === "room") return;
+  const rec = savedGames.find((r) => r.id === selectedSavedId);
+  if (!rec) { status("Select a saved game first", "pick one from the list"); return; }
+  try {
+    ui.archiveNote.textContent = "";
+    loadRecord(rec);
+  } catch (error) {
+    ui.archiveNote.textContent = error.message;
+  }
+}
+async function importGame() {
+  const file = ui.importFile.files[0];
+  ui.importFile.value = "";
+  if (!file || mode === "room") return;
+  try {
+    if (file.size > MAX_GAME_FILE_BYTES) throw new Error("Choose a game file smaller than 64 KB.");
+    let record;
+    try { record = JSON.parse(await file.text()); }
+    catch { throw new Error("This file is not valid JSON."); }
+    if (mode === "room") return;
+    if (!record || typeof record !== "object" ||
+        (record.format !== undefined && (record.format !== GAME_FILE || record.version !== 1))) {
+      throw new Error("This game file format is unsupported.");
+    }
+    loadRecord({
+      moves: record.moves,
+      p0: typeof record.p0 === "string" ? record.p0.slice(0, 80) : "Red",
+      p1: typeof record.p1 === "string" ? record.p1.slice(0, 80) : "Blue",
+    }, true);
+    ui.archiveNote.textContent = `Imported ${file.name}.`;
+  } catch (error) {
+    ui.archiveNote.textContent = error.message;
+  }
+}
+function exportPosition() {
+  if (mode === "room") return;
+  const position = {
+    format: GAME_FILE, version: 1,
+    p0: savePlayerName(0), p1: savePlayerName(1),
+    moves: moves.map((move) => move.a),
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(position, null, 2)], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `quoridor-move-${state.ply}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function deleteSaved() {
+  if (!savedGames.length) return;
+  if (!window.confirm("Delete all saved games in this browser?")) return;
+  savedGames = [];
+  savedLines.clear();
+  selectedSavedId = null;
+  persistSaved();
+  renderSaved();
+  updateButtons();
+}
+
+// ---------------------------------------------------------------- modes / room
+function setMode(next) {
+  if (!["ai", "hotseat", "ai_ai", "replay", "room"].includes(next)) return;
+  cancelAi();
+  clearReplay();
+  resetPeer();
+  roomReady = false;
+  roomCode = null;
+  mode = next;
+  running = false;
+  savedLines = new Set();
+  if (next === "room") {
+    state = State.new();
+    history = [state];
+    moves = [];
+    lastAction = null;
+    updateModeButtons();
+    updateViewFlip();
+    render();
+    status("Room mode", "Create a room or join with a code.");
+    roomMsg("The host plays Red. Share the room code with one opponent.");
+    return;
+  }
+  if (next === "replay") {
+    state = State.new();
+    history = [state];
+    moves = [];
+    lastAction = null;
+    updateModeButtons();
+    updateViewFlip();
+    render();
+    status("Choose a game to replay", "Open a saved game or import a Quoridor JSON file.");
+    return;
+  }
+  persistPrefs();
+  updateModeButtons();
+  newGame();
+}
+
+function roomMsg(text) { ui.roomMsg.textContent = text; }
+function peerAvailable() { return typeof window.Peer === "function"; }
+const ROOM_TIMEOUT = 12_000;
+let roomTimer = null;
+
+function waitOpen(p) {
+  if (p.open) return Promise.resolve();
+  return withTimeout(new Promise((resolve, reject) => {
+    const cleanup = () => { p.off("open", opened); p.off("error", failed); };
+    const opened = () => { cleanup(); resolve(); };
+    const failed = (error) => { cleanup(); reject(error); };
+    p.on("open", opened);
+    p.on("error", failed);
+  }), ROOM_TIMEOUT, "Room server did not respond");
+}
+function watchPeer(p) {
+  p.on("error", (error) => {
+    if (peer !== p) return;
+    if (roomRole === "guest" && !roomReady) {
+      status("Could not join the room", "Check the code or try again.");
+    }
+    roomMsg(`Room connection: ${error.message || error.type || error}`);
+  });
+  p.on("disconnected", () => {
+    if (peer !== p || p.destroyed) return;
+    roomMsg("Signalling disconnected. Attempting to reconnect…");
+    try { p.reconnect(); } catch (error) { roomMsg(error.message || String(error)); }
+  });
+}
+async function createRoom() {
+  if (!peerAvailable()) { roomMsg("Room play needs PeerJS and an internet connection."); return; }
+  resetPeer();
+  roomRole = "host";
+  mySide = 0;
+  newGame({ broadcast: false });
+  status("Creating a room…", "Connecting to the room server.");
+  const code = randomCode();
+  const p = peer = new window.Peer("q9-" + code.toLowerCase(), { debug: 1 });
+  try {
+    await waitOpen(p);
+    if (peer !== p) return;
+    roomCode = code;
+    ui.roomCode.textContent = code;
+    ui.roomCode.style.display = "block";
+    roomMsg("Share this code with one opponent.");
+    status("Waiting for an opponent", `Room ${code}`);
+    watchPeer(p);
+    p.on("connection", (channel) => {
+      if (peer !== p || conn) { channel.close(); return; }
+      bindConn(channel);
+    });
+  } catch (error) {
+    if (peer !== p) return;
+    resetPeer();
+    status("Could not create a room", "Try creating a room again.");
+    roomMsg(error.message || String(error));
+  }
+}
+async function joinRoom() {
+  if (!peerAvailable()) { roomMsg("Room play needs PeerJS and an internet connection."); return; }
+  const code = ui.joinCode.value.trim().toUpperCase();
+  if (!/^[A-Z2-9]{4}$/.test(code)) { roomMsg("Enter the four-character room code."); return; }
+  resetPeer();
+  roomRole = "guest";
+  mySide = 1;
+  roomCode = code;
+  status("Joining the room…", `Room ${code}`);
+  roomMsg("Connecting to the host.");
+  render();
+  const p = peer = new window.Peer({ debug: 1 });
+  try {
+    await waitOpen(p);
+    if (peer !== p) return;
+    watchPeer(p);
+    bindConn(p.connect("q9-" + code.toLowerCase(), { reliable: true }));
+  } catch (error) {
+    if (peer !== p) return;
+    resetPeer();
+    status("Could not join the room", "Check the code or try again.");
+    roomMsg(error.message || String(error));
+  }
+}
+function bindConn(channel) {
+  conn = channel;
+  const fail = (text) => {
+    if (conn !== channel) return;
+    clearTimeout(roomTimer);
+    conn = null;
+    roomReady = false;
+    channel.close();
+    render();
+    status("Room disconnected", roomRole === "host" ? `Opponent can rejoin room ${roomCode}.` : `Join room ${roomCode} again to resume.`);
+    roomMsg(text);
+  };
+  roomTimer = setTimeout(() => fail("The peer connection timed out."), ROOM_TIMEOUT);
+  const onOpen = () => {
+    if (conn !== channel || roomRole !== "host") return;
+    clearTimeout(roomTimer);
+    roomReady = true;
+    syncRoom();
+    roomMsg(`Connected · room ${roomCode} · you are Red.`);
+    showRoomPosition();
+  };
+  channel.on("open", onOpen);
+  channel.on("data", (data) => { if (conn === channel) handleNet(data); });
+  channel.on("close", () => fail("The connection closed."));
+  channel.on("error", (error) => fail(error.message || String(error)));
+  if (channel.open) onOpen();
+}
+function showRoomPosition() {
+  render();
+  if (state.terminal) finish();
+  else afterMove();
+}
+function syncRoom() {
+  netSend({ t: "sync", moves: moves.map((move) => move.a) });
+}
+function handleNet(message) {
+  if (!message || typeof message !== "object" || mode !== "room") return;
+  if (message.t === "sync" && roomRole === "guest") {
+    if (!Array.isArray(message.moves)) return;
+    let position = State.new();
+    const records = [], states = [position];
+    for (const action of message.moves) {
+      if (position.terminal || !actionsFor(position).includes(action)) return;
+      records.push({ n: Math.floor(position.ply / 2) + 1, side: position.turn, a: action, text: actionStr(action) });
+      position = position.doAction(action);
+      states.push(position);
+    }
+    clearTimeout(roomTimer);
+    roomReady = true;
+    state = position;
+    history = states;
+    moves = records;
+    lastAction = records.at(-1)?.a ?? null;
+    hover = null;
+    updateViewFlip();
+    roomMsg(`Connected · room ${roomCode} · you are Blue.`);
+    showRoomPosition();
+    return;
+  }
+  if (!roomReady) return;
+  if (message.t === "move") {
+    if (state.terminal || state.turn === mySide || message.ply !== state.ply || !actionsFor(state).includes(message.a)) {
+      if (roomRole === "host") syncRoom();
+      else netSend({ t: "resync" });
+      return;
+    }
+    if (!applyAction(message.a, { remote: true })) afterMove();
+  } else if (message.t === "resync" && roomRole === "host") {
+    syncRoom();
+  } else if (message.t === "restart" && roomRole === "guest") {
+    // Compatibility with a host using the earlier restart message.
+    newGame({ broadcast: false });
+  } else if (message.t === "askRestart" && roomRole === "host") {
+    roomMsg("Your opponent requests a rematch. Choose New game to accept.");
+  }
+}
+function netSend(message) {
+  if (mode === "room" && conn?.open) {
+    try { conn.send(message); } catch (error) { roomMsg(error.message || String(error)); }
+  }
+}
+function resetPeer() {
+  clearTimeout(roomTimer);
+  const channel = conn, p = peer;
+  conn = null;
+  peer = null;
+  roomReady = false;
+  roomRole = null;
+  channel?.close();
+  p?.destroy();
+  ui.roomCode.style.display = "none";
+}
+function randomCode() {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++) s += A[Math.floor(Math.random() * A.length)];
+  return s;
+}
+
+// ---------------------------------------------------------------- input wiring
+ui.themeSwitch.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-theme]");
+  if (b) setTheme(b.dataset.theme);
+});
+$("boardTools").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-tool]");
+  if (!button) return;
+  boardTool = button.dataset.tool;
+  for (const item of $("boardTools").querySelectorAll("button")) {
+    item.setAttribute("aria-pressed", String(item === button));
+  }
+  hover = null;
+  if (canPlay() && !busy) ui.hint.textContent = boardHint();
+  draw();
+});
+cvs.addEventListener("mousemove", (e) => {
+  if (!canPlay() || busy) { if (hover) { hover = null; draw(); } return; }
+  const h = pick(e);
+  const same = hover && h && hover.kind === h.kind && hover.r === h.r && hover.c === h.c;
+  hover = h;
+  if (!same) draw();
+});
+cvs.addEventListener("mouseleave", () => { hover = null; draw(); });
+cvs.addEventListener("click", (e) => {
+  if (!canPlay() || busy) return;
+  const h = pick(e);
+  if (!h) return;
+  const a = actionOf(h);
+  if (a === null) return;
+  if (!actionsFor(state).includes(a)) { status("Illegal move", "Choose a highlighted square or a wall that leaves both players a path."); return; }
+  if (!applyAction(a)) afterMove();
+});
+ui.btnNew.addEventListener("click", () => {
+  if (mode === "room") { if (roomReady) newGame(); return; }
+  newGame();
+});
+ui.btnPlay.addEventListener("click", () => {
+  if (mode !== "ai_ai") { status("Switch to AI vs AI to autoplay", ""); return; }
+  if (state.terminal) { newGame(); return; }
+  running = !running;
+  updateButtons();
+  if (running) scheduleAi(speed * 1000);
+  else { cancelAi(); render(); status(`${turnName()} to move`, "autoplay paused"); }
+});
+ui.btnUndo.addEventListener("click", undo);
+ui.btnFlip.addEventListener("click", flipSides);
+ui.btnResult.addEventListener("click", openResult);
+ui.btnResultClose.addEventListener("click", closeResult);
+ui.btnResultBoard.addEventListener("click", closeResult);
+ui.btnResultNew.addEventListener("click", () => {
+  closeResult();
+  newGame();
+  ui.btnNew.focus({ preventScroll: true });
+});
+ui.btnResultUndo.addEventListener("click", () => {
+  closeResult();
+  undo();
+  ui.btnUndo.focus({ preventScroll: true });
+});
+ui.btnResultReview.addEventListener("click", reviewFinishedGame);
+ui.viewBottom.addEventListener("change", () => {
+  viewBottomSetting = !!ui.viewBottom.checked;
+  persistPrefs();
+  updateViewFlip();
+  render();
+});
+ui.speed.addEventListener("input", () => {
+  speed = clamp(Number(ui.speed.value) || .7, .05, 2.5);
+  ui.speedText.textContent = `${speed.toFixed(2)} s / move`;
+  persistPrefs();
+  if (mode === "ai_ai" && running) scheduleAi(speed * 1000);
+});
+ui.replaySpeed.addEventListener("change", () => {
+  replaySpeed = Number(ui.replaySpeed.value);
+  persistPrefs();
+  if (replayPlaying) scheduleReplay();
+});
+ui.btnPrev.addEventListener("click", () => jumpReplay(replayIdx - 1));
+ui.btnNext.addEventListener("click", () => jumpReplay(replayIdx + 1));
+ui.replayPosition.addEventListener("input", () => jumpReplay(Number(ui.replayPosition.value)));
+ui.btnContinue.addEventListener("click", continueReplay);
+ui.btnImport.addEventListener("click", () => ui.importFile.click());
+ui.importFile.addEventListener("change", importGame);
+ui.btnExport.addEventListener("click", exportPosition);
+ui.btnAuto.addEventListener("click", toggleReplayAuto);
+ui.btnLoad.addEventListener("click", loadSelectedSaved);
+ui.btnDelete.addEventListener("click", deleteSaved);
+ui.saveGames.addEventListener("change", () => { saveEnabled = !!ui.saveGames.checked; persistPrefs(); });
+for (const [side, select] of [ui.engineRed, ui.engineBlue].entries()) {
+  select.addEventListener("change", () => {
+    if (state.turn === side) cancelAi();
+    const seat = engineSeat(side);
+    engineCfg[seat] = select.value;
+    sigmaAgents[side] = null;
+    persistPrefs();
+    updatePlayers();
+    updateEngineRows();
+    updateExtVisibility();
+    if (state.terminal) { updateResult(); return; }
+    const colour = side === 0 ? "Red" : "Blue";
+    status(`${colour} engine: ${engineName(side)}`, parseEngine(engineCfg[seat]).kind === "ext" && !extConfigured(seat)
+      ? `Configure the ${colour.toLowerCase()} endpoint in the external AI card` : "");
+    if (state.turn === side) scheduleAi();
+  });
+}
+ui.btnExtToggle.addEventListener("click", () => { extFormOpen = !extFormOpen; renderExt(); });
+ui.extSeat.addEventListener("change", () => setExtSeat(Number(ui.extSeat.value)));
+ui.btnExtSave.addEventListener("click", () => saveExtFromFields());
+ui.btnExtForget.addEventListener("click", forgetExternalKey);
+ui.btnChatClear.addEventListener("click", clearAiChat);
+ui.btnClearLocal.addEventListener("click", clearLocalData);
+ui.btnExtTest.addEventListener("click", async () => {
+  const profile = readExtFields();
+  if (!profile) return;
+  ui.extNote.textContent = "Testing endpoint...";
+  const seat = extSeat;
+  ui.btnExtTest.disabled = true;
+  try {
+    const r = await extComplete([{ role: "user", content: "Reply with exactly: OK" }], { temperature: 0, maxTokens: 20 }, profile);
+    if (extSeat === seat) ui.extNote.textContent = `Live response: ${r.content.slice(0, 60)}`;
+  } catch (err) {
+    if (extSeat === seat) ui.extNote.textContent = "Test failed: " + err.message;
+  } finally { ui.btnExtTest.disabled = false; }
+});
+ui.btnChatSend.addEventListener("click", sendChat);
+ui.chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+for (const b of ui.seg.querySelectorAll("button")) {
+  b.addEventListener("click", () => { if (b.dataset.mode !== mode) setMode(b.dataset.mode); });
+}
+ui.btnCreate.addEventListener("click", createRoom);
+ui.btnJoin.addEventListener("click", joinRoom);
+ui.joinCode.addEventListener("keydown", (e) => { if (e.key === "Enter") joinRoom(); });
+window.addEventListener("resize", layout);
+window.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "select" || tag === "textarea") return;
+  if (e.key.toLowerCase() === "z" && (e.ctrlKey || e.metaKey) && !e.shiftKey && undoIndex() >= 0) {
+    e.preventDefault();
+    undo();
+  } else if (replayStates && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    jumpReplay(replayIdx + (e.key === "ArrowLeft" ? -1 : 1));
+  }
+});
+
+// Public API used by the desktop bridge / my own smoke tests.
+window.quoridor = {
+  newGame,
+  move: (a) => {
+    if (state.terminal || mode === "replay" || (mode === "room" && !canPlay()) || !actionsFor(state).includes(a)) return false;
+    const over = applyAction(a);
+    if (!over) afterMove();
+    return true;
+  },
+  state: () => ({
+    pos: [...state.pos], walls: [...state.walls], turn: state.turn, ply: state.ply,
+    terminal: state.terminal, winner: state.winner, legal: state.terminal ? [] : [...actionsFor(state)], last: lastAction,
+  }),
+  setMode,
+  setTheme,
+  get mode() { return mode; },
+  get theme() { return document.documentElement.dataset.theme; },
+};
+
+function boot() {
+  applyTheme();
+  engineCfg[0] = fillEngineSelect(ui.engineRed, engineCfg[0]);
+  engineCfg[1] = fillEngineSelect(ui.engineBlue, engineCfg[1]);
+  ui.speed.value = speed;
+  ui.speedText.textContent = `${speed.toFixed(2)} s / move`;
+  ui.replaySpeed.value = replaySpeed;
+  ui.viewBottom.checked = viewBottomSetting;
+  ui.saveGames.checked = saveEnabled;
+  selectedSavedId = savedGames.length ? savedGames[0].id : null;
+  renderSaved();
+  updateViewFlip();
+  layout();
+  setMode(["ai", "hotseat", "ai_ai"].includes(mode) ? mode : "ai");
+}
+boot();

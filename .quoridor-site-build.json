@@ -1,0 +1,215 @@
+{
+  "generator": "quoridor-static-site",
+  "files": [
+    {
+      "path": ".nojekyll",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "index.html",
+      "bytes": 14736,
+      "sha256": "8f994cb06a37df26818ec9f7e2f3131b2fcf92d68cc61f07064f8a8e6a4d8f53"
+    },
+    {
+      "path": "board.css",
+      "bytes": 21919,
+      "sha256": "ffc92a86d5816940f30284ee8fee10f6c4a5fa9dd15711443ffa73fdf2c10fff"
+    },
+    {
+      "path": "app.js",
+      "bytes": 80252,
+      "sha256": "d5e8a7a90a08e6f2d581efedd5afaca12fe8d0d63484bd7944882c8caebabdef"
+    },
+    {
+      "path": "rules.js",
+      "bytes": 8373,
+      "sha256": "7d7a20b4006d74875090da833ad0e85c89b2321638b236dd22be94259b8170b6"
+    },
+    {
+      "path": "sigma.js",
+      "bytes": 17237,
+      "sha256": "ab95a46cb232591940693ea3f4a936a97fad01576c37f955d3bc1d181f291dd9"
+    },
+    {
+      "path": "alphabeta.js",
+      "bytes": 20589,
+      "sha256": "44539deb9110953a31f579501878ba8b624587dc5676e6fddc86c18d3f527eb3"
+    },
+    {
+      "path": "alphabeta-worker.js",
+      "bytes": 623,
+      "sha256": "309aaa962f7ed55a671b7918ed0391ec6f8d4f0c3dbce16a0ea44d2fcf913996"
+    },
+    {
+      "path": "claustrophobia.js",
+      "bytes": 4592,
+      "sha256": "2029a0cb90f50524ac57b4b7323fbe898ad4cf212776947a6ea8dcc978e91b7c"
+    },
+    {
+      "path": "detour.js",
+      "bytes": 4633,
+      "sha256": "ce7a3f9c63651efa7e3155df544362bd3ef125892f3004fe28c55e797dcf4dd5"
+    },
+    {
+      "path": "endgame.js",
+      "bytes": 10427,
+      "sha256": "5c3bee3b484a7a536ccfc39f977686f22e589d712135d3b77e1ef048dc9da7e4"
+    },
+    {
+      "path": "external-ai.js",
+      "bytes": 8996,
+      "sha256": "d7194a3228135bcfe5535e8bbc96233e98ecaf8a6edbf9c0e9bff036ff31d89d"
+    },
+    {
+      "path": "guided.js",
+      "bytes": 974,
+      "sha256": "7cb43afc4d4045e0b7d3df58ce11f72688bd9e462bbdfe9249554da8d32fcd24"
+    },
+    {
+      "path": "heuristic.js",
+      "bytes": 1019,
+      "sha256": "5b70e9100a42e9976c2fd6b1faed1f38581e584beec9beb9a49da2ab7e8f1391"
+    },
+    {
+      "path": "privacy.html",
+      "bytes": 6924,
+      "sha256": "774515d1543301c09f1f2d822199cf72d0031d5b1ebadbee6624217c2fb7511a"
+    },
+    {
+      "path": "terms.html",
+      "bytes": 2909,
+      "sha256": "65d3d5ac1ddd6b62839af6f5844a03bcb451eaf03d1de3661d6b3b8cdd2e1442"
+    },
+    {
+      "path": "legal.css",
+      "bytes": 1088,
+      "sha256": "38e19a8b5cd7275e1e159a7b8b3f316b0094e4512ee9fbace8a4de183ebd3cd1"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1079,
+      "sha256": "80611a3c3936d6902a9230c64c6d85aa99cf4e09486255aa06988ad0c35f10a1"
+    },
+    {
+      "path": "NOTICE.md",
+      "bytes": 4066,
+      "sha256": "638c73b49bd735c224cfa790b617a92ccbe1d601d61719f6e60d74e5d7860a5d"
+    },
+    {
+      "path": "models/claustrophobia_v1_3_1.onnx",
+      "bytes": 28502398,
+      "sha256": "576807f1c9686d42c6793581f181407aec8b510b52dc3efbda7c4ba5ce8e5b34"
+    },
+    {
+      "path": "models/sigma_9x9.onnx",
+      "bytes": 11663428,
+      "sha256": "d790dac68389f7602ff8a887a2385417d3c925fe22da7164c86e9226f943908d"
+    },
+    {
+      "path": "models/sigma_9x9_batch.onnx",
+      "bytes": 11663425,
+      "sha256": "b6faa17e7a788d3e296a774301e6e0e878e31ac7df47b772a5059b01ad60d914"
+    },
+    {
+      "path": "vendor/claustrophobia/LICENSE",
+      "bytes": 1065,
+      "sha256": "2255d739b359b18185bdaab5d93a8720304b91f198a3241e7b9e4db878e49083"
+    },
+    {
+      "path": "vendor/detour/LICENSE",
+      "bytes": 1083,
+      "sha256": "f5d4eba51709e8a7a7dd80550a50500646fffb09474b21d680a481e0fc0b7b96"
+    },
+    {
+      "path": "vendor/detour/engine.js",
+      "bytes": 94363,
+      "sha256": "0794d82866e441844b468a6a02741d15b13c8bb22f288a02cb6ba7c6cbe1556a"
+    },
+    {
+      "path": "vendor/detour/weights.js",
+      "bytes": 2829,
+      "sha256": "4e7965ddbf7a1f25a59b1942230aaf9afb9f5b01817eb2dae9cec4b95017a395"
+    },
+    {
+      "path": "vendor/ort/LICENSE",
+      "bytes": 1095,
+      "sha256": "d25deed12d803f6c973597348627b1939e2d19bbc28fda83c93ea0cde44702da"
+    },
+    {
+      "path": "vendor/ort/licenses/LICENSE-APACHE-2.0.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "vendor/ort/licenses/LICENSE-BSD-3-Clause.txt",
+      "bytes": 1937,
+      "sha256": "49d6a1c9a623784c61c6cb70f773f3457faceb1914a13c8560a9823b7631950c"
+    },
+    {
+      "path": "vendor/ort/licenses/LICENSE-MIT-platform.txt",
+      "bytes": 1095,
+      "sha256": "4a161ebed4f1ef933e16ccfa00d86c718703f5d015a9987ea7ce1bb72a43cd22"
+    },
+    {
+      "path": "vendor/ort/licenses/NOTICE-guid-typescript-ISC-source.md",
+      "bytes": 1195,
+      "sha256": "6d9ba5789364c666984b657f56dc2343ad9ab8c93d0894b66be7a8ba4f51b8d8"
+    },
+    {
+      "path": "vendor/ort/ort-wasm-simd-threaded.jsep.mjs",
+      "bytes": 44677,
+      "sha256": "1cbcba8f2c769c1eecbab66a1b1e55ef11704515bf4306373e3db3c37cf6dcd8"
+    },
+    {
+      "path": "vendor/ort/ort-wasm-simd-threaded.jsep.wasm",
+      "bytes": 21872216,
+      "sha256": "b45970d0632383a057c27ca5b660b216f8e00c17cf8db9f6207b5e4abc839368"
+    },
+    {
+      "path": "vendor/ort/ort.min.js",
+      "bytes": 357648,
+      "sha256": "4dec2f5e74de2ec0f496d39ef55ec23762e8c6ca58cb958e691c9f2350a7b1c8"
+    },
+    {
+      "path": "vendor/peerjs/LICENSE",
+      "bytes": 1108,
+      "sha256": "9407807dba7f47a79bfb3ac55759d63d77c9371ebd0616d5a093e97d3e810397"
+    },
+    {
+      "path": "vendor/peerjs/licenses/LICENSE-BSD-3-Clause-webrtc-adapter.txt",
+      "bytes": 1584,
+      "sha256": "00a46c6cfc219593b97586398b477e188391556e70487225d3ff9d60ccda6dce"
+    },
+    {
+      "path": "vendor/peerjs/licenses/LICENSE-ISC-msgpack.txt",
+      "bytes": 740,
+      "sha256": "d95a411bcdadac85d678a99367ff51719e53539fa5ee9994943cd760c4ae64e4"
+    },
+    {
+      "path": "vendor/peerjs/licenses/LICENSE-MIT-eventemitter3.txt",
+      "bytes": 1082,
+      "sha256": "3aecc12b1cb28832b5f65ab64291de96568c3f236a74d646281b4491f7bcadbf"
+    },
+    {
+      "path": "vendor/peerjs/licenses/LICENSE-MIT-peerjs-js-binarypack.txt",
+      "bytes": 1093,
+      "sha256": "9517e6f46b30231a62407f94a8c7adf8b4d14038c01807cd769f1d4de5911ba4"
+    },
+    {
+      "path": "vendor/peerjs/licenses/LICENSE-MIT-sdp.txt",
+      "bytes": 1058,
+      "sha256": "798e82590af6a84bfbde3d6bb0fb9162c519edf16122404fea00acefdc55cbd9"
+    },
+    {
+      "path": "vendor/peerjs.min.js",
+      "bytes": 92865,
+      "sha256": "ad5d8870d1e389914f9cba8d35be313c4327c69ee0a221e482e9bf7621136fe5"
+    },
+    {
+      "path": "vendor/sigma/LICENSE",
+      "bytes": 1071,
+      "sha256": "b5e277822da3c9eb54eb04e9ee3c4f93bfeb769c829d5d0f70c99835a2f6733d"
+    }
+  ]
+}
