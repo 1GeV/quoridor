@@ -1,0 +1,13 @@
+node_modules/
+*.orig
+dist/
+.DS_Store
+tests/sigma_ref.json.bak
+# Local previews, private review notes and unused deployment identity settings.
+/*.png
+/gpu_test.html
+/docs/COMPLIANCE.md
+/site-info.json
+/legal.js
+/.env*
+!/.env.example

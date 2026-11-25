@@ -1,0 +1,1 @@
+{"name":"quoridor-web","private":true,"type":"module","scripts":{"start":"node serve.js","test":"node --test tests/*.test.mjs","build":"node tools/build-site.mjs"},"dependencies":{"onnxruntime-web":"^1.19.2","peerjs":"^1.5.4"}}

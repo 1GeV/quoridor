@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Quoridor · Play</title>
+<script>
+(function () {
+  try {
+    var p = JSON.parse(localStorage.getItem("quoridor.prefs.v1") || "{}");
+    var mode = p.theme || "auto";
+    var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = mode === "auto" ? (dark ? "dark" : "light") : mode;
+  } catch (e) { document.documentElement.dataset.theme = "light"; }
+})();
+</script>
+<link rel="stylesheet" href="./board.css">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <div class="brandline">
+      <h1>Quoridor</h1>
+    </div>
+  </div>
+  <div class="top-actions">
+    <div class="theme-switch" id="themeSwitch" role="group" aria-label="theme">
+      <button data-theme="auto" class="on" title="Follow system">Auto</button>
+      <button data-theme="dark" title="Dark">Dark</button>
+      <button data-theme="light" title="Light">Light</button>
+    </div>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="board-area">
+    <div class="board-status" id="boardStatus" role="status" aria-live="polite" aria-atomic="true">
+      <div class="result-label" id="resultLabel" hidden>Game complete</div>
+      <div class="status" id="status">Loading game</div>
+      <div class="sub" id="hint">Select a highlighted square to move.</div>
+    </div>
+    <div class="game-tools" role="group" aria-label="Game controls">
+      <button class="btn primary" id="btnNew">New game</button>
+      <button class="btn" id="btnPlay" hidden>Play</button>
+      <button class="btn" id="btnUndo">Undo</button>
+      <button class="btn" id="btnFlip">Flip sides</button>
+      <button class="btn" id="btnResult" hidden>View result</button>
+    </div>
+
+    <div class="board-frame" id="boardFrame">
+      <canvas id="board" aria-label="Quoridor 9 by 9 game board"></canvas>
+    </div>
+    <div class="board-tools" id="boardTools" role="group" aria-label="Board controls">
+      <button type="button" data-tool="auto" aria-pressed="true">Move</button>
+      <button type="button" data-tool="H" aria-pressed="false"><span aria-hidden="true">━</span> Horizontal wall</button>
+      <button type="button" data-tool="V" aria-pressed="false"><span aria-hidden="true">┃</span> Vertical wall</button>
+    </div>
+  </section>
+
+  <aside class="sidebar">
+    <div class="side-inner">
+      <section class="card" id="replayCard" hidden>
+        <div class="section-head">REPLAY <span class="value" id="replayLabel">move 0 / 0</span></div>
+        <input class="speed replay-position" id="replayPosition" type="range" min="0" max="0" value="0" aria-label="Replay position">
+        <div class="btn-grid three">
+          <button class="btn" id="btnPrev">&lt; Prev</button>
+          <button class="btn" id="btnNext">Next &gt;</button>
+          <button class="btn" id="btnAuto">Auto</button>
+        </div>
+        <div class="replay-rate">
+          <label for="replaySpeed">Auto speed</label>
+          <select id="replaySpeed">
+            <option value="3">3 s / move</option>
+            <option value="2" selected>2 s / move</option>
+            <option value="1.5">1.5 s / move</option>
+            <option value="1">1 s / move</option>
+            <option value="0.5">0.5 s / move</option>
+          </select>
+        </div>
+        <div class="btn-grid replay-continue">
+          <select id="continueMode" aria-label="How to continue the game">
+            <option value="red">vs AI · Play Red</option>
+            <option value="blue">vs AI · Play Blue</option>
+            <option value="hotseat">2 players</option>
+          </select>
+          <button class="btn primary" id="btnContinue" aria-describedby="continueNote">Play from here</button>
+        </div>
+        <div class="note" id="continueNote"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">PLAYERS</div>
+        <div class="player" id="playerRed">
+          <span class="dot red"></span>
+          <div class="pmeta"><div class="pname" id="nameRed">You</div><div class="tag" id="tagRed">bottom &middot; reach the top</div></div>
+          <div class="wallcount"><span id="wallsRed">10</span><small>WALLS</small></div>
+        </div>
+        <div class="pips" id="pipsRed"></div>
+        <div class="player" id="playerBlue">
+          <span class="dot blue"></span>
+          <div class="pmeta"><div class="pname" id="nameBlue">Claustrophobia + Alpha-beta</div><div class="tag" id="tagBlue">top &middot; reach the bottom</div></div>
+          <div class="wallcount"><span id="wallsBlue">10</span><small>WALLS</small></div>
+        </div>
+        <div class="pips" id="pipsBlue"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">MODE</div>
+        <div class="seg" id="seg">
+          <button data-mode="ai" class="on">vs AI</button>
+          <button data-mode="hotseat">2 players</button>
+          <button data-mode="ai_ai">AI vs AI</button>
+          <button data-mode="replay">Replay</button>
+          <button data-mode="room">Room</button>
+        </div>
+        <label class="check" id="bottomLabel"><input type="checkbox" id="viewBottom" checked> I always play from the bottom</label>
+        <div class="room" id="roomPanel">
+          <button class="btn primary" id="btnCreate">Create room</button>
+          <div class="btn-grid" style="grid-template-columns:1fr 88px">
+            <input id="joinCode" maxlength="4" placeholder="CODE" aria-label="room code">
+            <button class="btn" id="btnJoin">Join</button>
+          </div>
+          <div class="roomcode" id="roomCode" style="display:none"></div>
+          <div class="roommsg" id="roomMsg">Peer-to-peer: the host keeps the board; the guest plays blue.</div>
+          <p class="note">Creating or joining contacts PeerJS and connection services. Your opponent may learn your IP address. Rooms exchange game actions only; there is no player chat. <a href="./privacy.html#rooms">Room privacy</a></p>
+        </div>
+      </section>
+
+      <section class="card ext-card hide">
+        <div class="section-head">EXTERNAL AI <button class="link" id="btnExtToggle">settings</button></div>
+        <div class="ext-summary" id="extSummary">Not configured. Use any OpenAI-compatible endpoint.</div>
+        <div class="ext-seat-row hide" id="extSeatRow">
+          <label for="extSeat">CONFIGURE &amp; CHAT WITH</label>
+          <select id="extSeat"><option value="0">RED</option><option value="1">BLUE</option></select>
+        </div>
+        <div class="ext-form hide" id="extForm">
+          <div class="field"><label for="extProtocol">API FORMAT</label><select id="extProtocol">
+            <option value="auto">Auto detect</option>
+            <option value="chat">Chat Completions</option>
+            <option value="responses">OpenAI Responses</option>
+            <option value="anthropic">Anthropic Messages</option>
+          </select></div>
+          <div class="field"><label for="extBase">BASE URL OR FULL ENDPOINT</label><input id="extBase" spellcheck="false" placeholder="https://api.example.com/v1"></div>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extFullEndpoint"> Use URL exactly as entered (custom endpoint)</label>
+          <div class="field"><label for="extKey">API KEY (OPTIONAL FOR LOCAL ENDPOINTS)</label><input id="extKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-..."></div>
+          <div class="field"><label for="extModel">MODEL</label><input id="extModel" spellcheck="false" placeholder="model-name"></div>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extRemember"> Remember key on this device (unencrypted browser storage)</label>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extAllowMoves"> Allow live external API calls for AI turns (your provider may charge)</label>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extImage"> Allow this engine to request a board image</label>
+          <div class="btn-grid">
+            <button class="btn" id="btnExtSave">Save &amp; apply</button>
+            <button class="btn" id="btnExtTest">Test · live request</button>
+          </div>
+          <button class="link" id="btnExtForget" type="button">Forget this API key</button>
+        <div class="note" id="extNote">Test sends a live request. Automatic external move calls are off by default; “Save &amp; apply” may start one only if you opted in above and this seat is due to move. Your key goes only to the endpoint you enter. AI chat sends your messages and board position. The provider may charge and retain data. <a href="./privacy.html#external-ai">Read before connecting</a></div>
+        </div>
+        <div class="section-head" style="margin-top:14px">AI CHAT <span class="value" id="chatStatus">offline</span></div>
+          <div class="chatlog" id="chatLog"><div class="chat-empty">Chat with the configured external model. Sending each message makes a live request and may incur provider charges. Board context is attached.</div></div>
+        <div class="chat-row">
+          <input id="chatInput" maxlength="500" placeholder="Type a message..." aria-label="chat message">
+          <button class="btn" id="btnChatSend" aria-label="Send message to your configured AI provider (live request)">Send</button>
+        </div>
+        <button class="link" type="button" id="btnChatClear">Clear this AI conversation</button>
+      </section>
+
+      <section class="card" id="engineCard">
+        <div class="section-head">ENGINES</div>
+        <div class="engine-row" id="engineRedRow">
+          <div class="cap" id="capRed">RED ENGINE</div>
+          <select id="engineRed" aria-label="red engine"></select>
+        </div>
+        <div class="engine-row" id="engineBlueRow">
+          <div class="cap" id="capBlue">BLUE ENGINE</div>
+          <select id="engineBlue" aria-label="blue engine"></select>
+        </div>
+        <div class="note" id="engineNote"></div>
+      </section>
+
+      <section class="card" id="speedCard">
+        <div class="section-head">AUTOPLAY SPEED <span class="value" id="speedText">0.70 s / move</span></div>
+        <input class="speed" id="speed" type="range" min="0.05" max="2.5" step="0.05" value="0.70">
+      </section>
+
+      <section class="card">
+        <div class="section-head">SAVED GAMES</div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="saveGames" checked> Save finished games</label>
+        <div class="saved-list" id="savedList"></div>
+        <div class="btn-grid archive-actions">
+          <button class="btn" id="btnLoad">Open replay</button>
+          <button class="btn danger" id="btnDelete">Delete all</button>
+          <button class="btn" id="btnImport">Import game</button>
+          <button class="btn" id="btnExport">Export position</button>
+        </div>
+        <input type="file" id="importFile" accept=".json,application/json" hidden>
+        <div class="note" id="archiveNote" role="status"></div>
+      </section>
+
+      <section class="card moves-card">
+        <div class="moves-head">
+          <div class="section-head" style="margin:0">MOVE LOG</div>
+          <span class="value" id="moveCount" style="color:var(--muted)">0 moves</span>
+        </div>
+        <div class="log" id="log"></div>
+      </section>
+
+      <div class="foot">
+        <a href="./privacy.html">Privacy &amp; data</a> · <a href="./terms.html">Terms</a> · <a href="./NOTICE.md">Third-party notices</a> · <a href="https://github.com/1GeV/quoridor" target="_blank" rel="noopener noreferrer">Source</a><br>
+        <button class="link" type="button" id="btnClearLocal">Clear this app's local data</button><br>
+        Quoridor is a trademark of Gigamic; this is an unaffiliated rules implementation.<br>
+        AI: <a href="https://github.com/bartolomeo3000/SigmaQuoridor" target="_blank" rel="noopener">SigmaQuoridor</a> and <a href="https://github.com/Plaaasma/Claustrophobia" target="_blank" rel="noopener">Claustrophobia</a> weights. Search by <a href="https://github.com/EmyoTyyy/detour" target="_blank" rel="noopener">Detour</a> and inference by <a href="https://onnxruntime.ai/" target="_blank" rel="noopener">ONNX Runtime Web</a>. Rooms by <a href="https://peerjs.com/" target="_blank" rel="noopener">PeerJS</a>. This page is MIT licensed.
+      </div>
+    </div>
+  </aside>
+</main>
+
+<dialog class="result-dialog" id="resultDialog" aria-labelledby="resultTitle" aria-describedby="resultDescription">
+  <button class="result-close" id="btnResultClose" type="button" aria-label="Close result and view final board">&times;</button>
+  <div class="result-mark" aria-hidden="true">
+    <div class="result-sparks"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <svg class="result-trophy" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 10h18v10a9 9 0 0 1-18 0V10ZM15 13H9v5a7 7 0 0 0 8 7M33 13h6v5a7 7 0 0 1-8 7M24 29v9M17 39h14"/>
+    </svg>
+    <svg class="result-flag" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 39V10c8-7 13 7 22 0v17c-9 7-14-7-22 0M10 39h8"/>
+    </svg>
+  </div>
+  <p class="result-eyebrow" id="resultEyebrow">Game complete</p>
+  <h2 id="resultTitle">Game complete</h2>
+  <p class="result-description" id="resultDescription"></p>
+  <p class="result-matchup" id="resultMatchup"></p>
+  <dl class="result-stats">
+    <div><dt>Moves played</dt><dd id="resultMoves">0</dd></div>
+    <div><dt>Walls placed</dt><dd id="resultWalls">0</dd></div>
+    <div><dt>Winning side</dt><dd id="resultWinner"></dd></div>
+  </dl>
+  <div class="result-actions">
+    <button class="btn primary" id="btnResultNew" type="button" autofocus>Play again</button>
+    <button class="btn" id="btnResultReview" type="button">Review game</button>
+    <button class="btn" id="btnResultUndo" type="button">Undo &amp; continue</button>
+  </div>
+  <button class="link result-view" id="btnResultBoard" type="button">View final board</button>
+</dialog>
+
+<script src="./vendor/peerjs.min.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
