@@ -185,3 +185,49 @@ test("even Extra high requests wait for the provider and accept in-flight cancel
   await assert.rejects(request, { name: "AbortError" });
   assert.equal(timeout.mock.callCount(), 0);
 });
+
+
+test("external adapters accept an unsolicited complete event stream and preserve reported caching", async () => {
+  const cases = {
+    chat: [
+      { choices: [{ index: 0, delta: { content: "墙" } }] },
+      { choices: [{ index: 0, delta: { content: " OK" }, finish_reason: "stop" }] },
+      { choices: [], usage: { prompt_tokens_details: { cached_tokens: 7 } } },
+      "[DONE]",
+    ],
+    responses: [
+      { type: "response.output_text.delta", delta: "墙" },
+      { type: "response.completed", response: { status: "completed", output_text: "墙 OK", usage: { input_tokens_details: { cached_tokens: 7 } } } },
+    ],
+    anthropic: [
+      { type: "message_start", message: { usage: { cache_read_input_tokens: 7 } } },
+      { type: "content_block_delta", delta: { type: "text_delta", text: "墙" } },
+      { type: "content_block_delta", delta: { type: "text_delta", text: " OK" } },
+      { type: "message_delta", usage: { output_tokens: 3 } },
+      { type: "message_stop" },
+    ],
+  };
+  for (const [protocol, events] of Object.entries(cases)) {
+    const eventText = events.map((event) => `data: ${typeof event === "string" ? event : JSON.stringify(event)}\r\n\r\n`).join("");
+    const bytes = new TextEncoder().encode(eventText);
+    let cancelled = false;
+    const response = new Response(new ReadableStream({
+      start(controller) { for (let i = 0; i < bytes.length; i += 8) controller.enqueue(bytes.slice(i, i + 8)); },
+      cancel() { cancelled = true; },
+    }), { headers: { "Content-Type": protocol === "chat" ? "application/octet-stream" : "text/event-stream" } });
+    const result = await completeExternal(messages, { fetchImpl: async () => response }, { ...profile, protocol });
+    assert.deepEqual(result, { content: "墙 OK", cacheRead: 7 });
+    assert.equal(cancelled, true, "return at the final event even if the connection remains open");
+  }
+});
+
+test("external adapters distinguish HTML and truncated event streams without exposing the body", async () => {
+  const cases = [
+    [new Response(`<html>${profile.apiKey}</html>`, { headers: { "Content-Type": "text/html" } }), /HTML page/],
+    [new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: profile.apiKey } }] })}\n\n`, { headers: { "Content-Type": "text/event-stream" } }), /incomplete event stream/],
+  ];
+  for (const [response, pattern] of cases) {
+    await assert.rejects(completeExternal(messages, { fetchImpl: async () => response }, profile),
+      (error) => pattern.test(error.message) && !error.message.includes(profile.apiKey));
+  }
+});

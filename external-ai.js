@@ -93,7 +93,53 @@ export function anthropicBody(messages, profile, temperature, maxTokens) {
 const MAX_RESPONSE_BYTES = 256 * 1024;
 class EndpointError extends Error {}
 
-async function responseJson(response) {
+function externalEventStream(protocol) {
+  let pending = "", content = "", usage, result, finished = false;
+  const invalid = () => new EndpointError("The endpoint returned an invalid or incomplete event stream");
+  function consume(text, end) {
+    pending += text;
+    const frames = pending.split(/\r?\n\r?\n/);
+    pending = end ? "" : frames.pop();
+    for (const frame of frames) {
+      const lines = frame.split(/\r?\n/);
+      const raw = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+      if (!raw) continue;
+      if (raw === "[DONE]") {
+        if (protocol !== "chat") throw invalid();
+        result = { choices: [{ message: { content } }], usage };
+        break;
+      }
+      let data;
+      try { data = JSON.parse(raw); }
+      catch { throw invalid(); }
+      const type = data?.type ?? lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+      if (data?.error || ["error", "response.failed", "response.incomplete", "response.cancelled"].includes(type)) throw invalid();
+      if (protocol === "responses") {
+        if (type === "response.completed" && data.response) { result = data.response; break; }
+      } else if (protocol === "anthropic") {
+        if (type === "message_start") usage = data.message?.usage;
+        if (type === "content_block_start" && data.content_block?.type === "text") content += data.content_block.text ?? "";
+        if (type === "content_block_delta" && data.delta?.type === "text_delta") content += data.delta.text ?? "";
+        if (type === "message_delta") usage = { ...usage, ...data.usage };
+        if (type === "message_stop") { result = { content: [{ type: "text", text: content }], usage }; break; }
+      } else {
+        const choices = Array.isArray(data?.choices) ? data.choices : [];
+        const choice = choices.find((item) => item?.index === 0) ?? choices[0];
+        if (!finished && typeof choice?.delta?.content === "string") content += choice.delta.content;
+        if (choice?.finish_reason === "stop") finished = true;
+        usage = data?.usage ?? usage;
+      }
+    }
+    if (end && !result) {
+      if (protocol === "chat" && finished) result = { choices: [{ message: { content } }], usage };
+      else throw invalid();
+    }
+    return result;
+  }
+  return consume;
+}
+
+async function responseData(response, protocol) {
   const tooLarge = () => new EndpointError("The endpoint response exceeds 256 KiB");
   if (Number(response.headers.get("content-length")) > MAX_RESPONSE_BYTES) {
     await response.body?.cancel().catch(() => {});
@@ -101,25 +147,43 @@ async function responseJson(response) {
   }
   const reader = response.body?.getReader();
   if (!reader) throw new EndpointError("The endpoint returned no response body");
-  const parts = [];
-  let length = 0;
+  const type = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+  const decoder = new TextDecoder();
+  let readEvents = type === "text/event-stream" ? externalEventStream(protocol) : null;
+  let text = "", length = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-      length += value.byteLength;
-      if (length > MAX_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => {});
-        throw tooLarge();
+      length += value?.byteLength ?? 0;
+      if (length > MAX_RESPONSE_BYTES) throw tooLarge();
+      const chunk = decoder.decode(value, { stream: !done });
+      if (readEvents) {
+        const result = readEvents(chunk, done);
+        if (result) return result;
+      } else {
+        text += chunk;
+        // Some compatible endpoints send SSE with a generic content type.
+        if (/^(?::|(?:data|event|id|retry):)/.test(text.trimStart())) {
+          readEvents = externalEventStream(protocol);
+          const result = readEvents(text.trimStart(), done);
+          if (result) return result;
+          text = "";
+        }
       }
-      parts.push(value);
+      if (done) break;
     }
-  } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const part of parts) { bytes.set(part, offset); offset += part.length; }
-  try { return JSON.parse(new TextDecoder().decode(bytes)); }
-  catch { throw new EndpointError("The endpoint did not return valid JSON"); }
+  } finally {
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  try { return JSON.parse(text); }
+  catch {
+    if (type === "text/html" || /^\s*(?:<!doctype html\b|<html\b)/i.test(text)) {
+      throw new EndpointError("The endpoint returned an HTML page instead of an API response. Check the Base URL and API format.");
+    }
+    if (!text.trim()) throw new EndpointError("The endpoint returned an empty response");
+    throw new EndpointError("The endpoint returned a response that could not be parsed as JSON. Check the Base URL and API format.");
+  }
 }
 
 export async function completeExternal(messages, {
@@ -152,7 +216,7 @@ export async function completeExternal(messages, {
       // An arbitrary provider can echo the submitted API key in its error body.
       throw new EndpointError(`Endpoint returned HTTP ${response.status}. Check the endpoint, model and key.`);
     }
-    const data = await responseJson(response);
+    const data = await responseData(response, protocol);
     signal?.throwIfAborted();
     if (protocol === "responses" && (data?.error || ["failed", "cancelled", "incomplete"].includes(data?.status))) {
       throw new EndpointError("The Responses request did not complete. Check the model and output token limit.");

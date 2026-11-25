@@ -87,8 +87,8 @@
   <h2 id="external-ai">Optional external AI</h2>
   <p>You do not need external AI to play. To use it, select <strong>External AI</strong>, enter an endpoint and model, choose its API format, then explicitly enable and save permission for automatic move requests. The supported formats are Chat Completions, Responses and Anthropic Messages. A local model server can also be used if the browser can reach it and its CORS/local-network settings allow the request.</p>
   <ul>
-    <li>Requests go directly from your browser to the endpoint you configure. If the browser reports a CORS error, check that your provider allows this site’s origin and accepts a preflight OPTIONS request before checking the API key.</li>
-    <li>Chat and automatic moves for one AI seat share recent history during the game. Suggest a strategy in chat and the model can take it into account on its next turn. Both requests include the latest board and can send earlier chat to your provider. Clear this AI conversation to start over at the current board.</li>
+    <li>Requests go directly from your browser to the endpoint you configure. If the browser reports a CORS error, check that your provider allows this site’s origin and accepts a preflight OPTIONS request. If the endpoint returns an HTML page, check the Base URL and API format.</li>
+    <li>Chat and automatic moves for one AI seat share recent history during the game. Suggest a strategy in chat and the model can take it into account on its next turn. Both requests include the latest board and can send earlier chat to your provider. Clear this AI conversation to start over at the current board. With <strong>Allow board images</strong> enabled, the model can request one image of the current board before choosing a move.</li>
     <li>The provider may charge for requests, retain data or apply its own privacy and age rules. Check its terms before use. No key is needed for a service that does not require authentication.</li>
     <li>If a move request fails or returns an illegal move, the board waits on the same turn. Use <strong>Retry AI move</strong> to try again.</li>
   </ul>

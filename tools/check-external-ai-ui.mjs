@@ -37,10 +37,12 @@ const api = http.createServer(async (req, res) => {
   const body = JSON.parse(raw), messages = body.messages || body.input || [];
   const turns = messages.map(({ role, content }) => ({ role, content: typeof content === "string" ? content : content[0]?.text }));
   const system = body.instructions ?? body.system?.[0]?.text ?? turns.find((message) => ["system", "developer"].includes(message.role))?.content;
-  const last = turns.at(-1)?.content;
+  const image = Array.isArray(messages.at(-1)?.content) ? messages.at(-1).content.find((part) =>
+    ["image_url", "input_image", "image"].includes(part.type)) : null;
+  const last = image ? turns.slice(0, -1).findLast((turn) => turn.role === "user")?.content : turns.at(-1)?.content;
   const board = last?.startsWith("{") ? JSON.parse(last) : null;
-  const kind = board?.task ?? "test";
-  const call = { kind, board, turns, system, model: body.model, body, url: req.url, origin: req.headers.origin };
+  const kind = image ? "image" : board?.task ?? "test";
+  const call = { kind, board, turns, system, image, model: body.model, body, url: req.url, origin: req.headers.origin };
   calls.push(call);
   if (String(body.model).startsWith("failed")) {
     res.writeHead(503, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "mock unavailable" }));
@@ -51,9 +53,10 @@ const api = http.createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json");
     const requests = turns.filter((turn) => turn.role === "user" && turn.content.startsWith("{")).map((turn) => JSON.parse(turn.content));
     const preference = requests.findLast((request) => /prefer a (wall|pawn)/.test(request.message))?.message;
-    const move = kind === "move" && (preference?.includes("prefer a wall")
-      ? board.legalActions.find((action) => /^[HV] /.test(action)) : board.legalActions[0]);
-    const text = kind === "test" ? "OK" : kind === "chat" ? `Reply from ${body.model}.` : JSON.stringify({ move });
+    const move = board?.legalActions[0];
+    const preferred = preference?.includes("prefer a wall") ? board.legalActions.find((action) => /^[HV] /.test(action)) : move;
+    const text = kind === "test" ? "OK" : kind === "chat" ? `Reply from ${body.model}.`
+      : kind === "move" && body.model === "ask-image" ? '{"want_board":true}' : JSON.stringify({ move: preferred });
     res.end(JSON.stringify(req.url.endsWith("/responses") ? { status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }], usage: { input_tokens_details: { cached_tokens: 7 } } }
       : req.url.endsWith("/messages") ? { content: [{ type: "text", text }], usage: { cache_read_input_tokens: 7 } }
       : { choices: [{ message: { content: text } }], usage: { prompt_tokens_details: { cached_tokens: 7 } } }));
@@ -263,6 +266,35 @@ try {
   assert.doesNotMatch(JSON.stringify(chatRequests[13]), /Strategy message 0\./);
   assert.deepEqual(chatRequests[14].slice(0, chatRequests[13].length), chatRequests[13]);
   console.log("PASS: history stays bounded and resumes stable prefixes after trimming");
+
+  for (const protocol of ["chat", "responses", "anthropic"]) {
+    await fresh({}, [{}, { ...profile(true, "ask-image"), protocol, allowImage: true }]);
+    await humanMove(81);
+    await page.wait(() => quoridor.state().ply === 2);
+    const [first, followup] = calls;
+    assert.equal(calls.length, 2);
+    assert.equal(first.kind, "move");
+    assert.equal(first.board.boardImageAvailable, true);
+    assert.deepEqual(first.board.pawns, { Red: "e9", Blue: "e1" });
+    assert.deepEqual(first.board.placedWalls, ["H a1"]);
+    assert.deepEqual(first.board.wallsLeft, { Red: 9, Blue: 10 });
+    assert.equal(first.board.yourSide, "Blue");
+    assert.equal(first.board.sideToMove, "Blue");
+    assert.deepEqual(followup.board, first.board);
+    assert.equal(followup.kind, "image");
+    const image = Buffer.from(followup.image.source?.data ?? (followup.image.image_url?.url ?? followup.image.image_url).split(",")[1], "base64");
+    assert.equal(image.readUInt16BE(), 0xffd8);
+    assert.deepEqual(followup.turns.slice(0, first.turns.length), first.turns);
+    await sendMessage("Describe your move."); await chatReady();
+    assert.ok(!calls.at(-1).image);
+  }
+  await fresh({}, [{}, profile(true, "ask-image")]);
+  await humanMove();
+  await page.wait(() => document.querySelector("#status").textContent === "External AI request failed");
+  assert.equal(await ply(), 1);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].board.boardImageAvailable, false);
+  console.log("PASS: all three formats can request the current board image before playing, and image sharing requires permission");
   await fresh({}, [{}, profile(true)]);
   await page.run(() => { document.querySelector("#btnExtToggle").click(); document.querySelector("#extEffort").value = "max"; document.querySelector("#btnExtSave").click(); });
   await humanMove(); await page.wait(() => quoridor.state().ply === 2);
