@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { AI_CACHE, AI_REVISIONS, cachedAIBytes, clearAIAssets } from "../ai-assets.js";
+import { AI_CACHE, AI_REVISIONS, cachedAIBytes, clearAIAssets, pruneAIAssets } from "../ai-assets.js";
 
 const hash = (data) => createHash("sha256").update(data).digest("hex");
 const url = "https://example.invalid/quoridor/models/test.onnx";
@@ -27,6 +27,25 @@ test("verified AI binaries persist across loads and revisions use separate cache
   const newer = new Uint8Array([4, 5, 6]);
   assert.deepEqual(await cachedAIBytes(url, hash(newer), { cacheStorage, fetchImpl: async () => { fetches++; return new Response(newer); } }), newer);
   assert.equal(fetches, 2); assert.equal(cacheStorage.entries.size, 2);
+});
+
+test("opening the game drops obsolete AI downloads for this deployment only", async () => {
+  const cacheStorage = storage();
+  const base = new URL("https://example.invalid/quoridor/");
+  const model = "models/claustrophobia_v1_3_1.onnx";
+  const assetURL = (path, revision) => new URL(path + "?quoridor-ai=" + revision, base).href;
+  const current = assetURL(model, AI_REVISIONS[model]);
+  const otherDeployment = assetURL("../other/models/claustrophobia_v1_3_1.onnx", "old");
+  const unrelated = assetURL("models/readme.txt", "old");
+  const obsolete = [assetURL(model, "old"), assetURL("models/retired.onnx", "old")];
+  const cache = await cacheStorage.open(AI_CACHE);
+  cacheStorage.has = async (name) => name === AI_CACHE;
+  cache.keys = async () => [...cacheStorage.entries.keys()].map((url) => new Request(url));
+  const deleteEntry = cache.delete;
+  cache.delete = async (request) => deleteEntry(request.url);
+  for (const url of [current, otherDeployment, unrelated, ...obsolete]) await cache.put(url, new Response("bytes"));
+  await pruneAIAssets(cacheStorage, base);
+  assert.deepEqual([...cacheStorage.entries.keys()], [current, otherDeployment, unrelated]);
 });
 
 test("corrupt cache entries are replaced; incomplete network downloads are never cached", async () => {
