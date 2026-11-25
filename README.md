@@ -181,7 +181,9 @@ URL ending in `/v1` gets the selected format's suffix. Custom endpoint paths
 can be used exactly as entered by checking the matching option and selecting
 their request format. Responses requests use `store: false`; provider-side
 logging and caching remain subject to that provider's policy. Browser requests
-need CORS at the endpoint. The **Test** button sends a live request asking for
+need CORS at the endpoint. A browser network error can reflect CORS/preflight, DNS/TLS,
+network or endpoint availability and does not alone mean the key/model is invalid;
+HTTP responses show their status. The **Test** button sends a live request asking for
 `OK`. **Save & apply** saves the configuration. Automatic move requests remain
 disabled until explicitly enabled and saved for that profile; the seat waits
 while permission is off. The key is sent only to the

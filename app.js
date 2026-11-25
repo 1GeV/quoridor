@@ -91,6 +91,7 @@ const ui = {
   btnUndo: $("btnUndo"),
   btnFlip: $("btnFlip"),
   btnExternalSetup: $("btnExternalSetup"),
+  btnRetryAI: $("btnRetryAI"),
   speed: $("speed"),
   speedText: $("speedText"),
   replayLabel: $("replayLabel"),
@@ -296,6 +297,7 @@ let history = [state];
 let moves = [];                    // [{ n, side, a, text }]
 let lastAction = null;
 let busy = false;
+let aiRetryAvailable = false;
 let aiEpoch = 0;
 let aiTimer = null;
 let lastInfo = "";
@@ -718,6 +720,7 @@ function updateEngineRows() {
 function updateButtons() {
   ui.boardTools.hidden = mode === "replay";
   ui.btnExternalSetup.hidden = !externalTurnBlock();
+  ui.btnRetryAI.hidden = !aiRetryAvailable || !["ai", "ai_ai"].includes(mode) || state.terminal || (mode === "ai" && state.turn === humanSide);
   ui.btnPlay.hidden = mode !== "ai_ai";
   ui.btnPlay.textContent = mode === "ai_ai" && running ? "Pause" : "Play";
   ui.btnUndo.hidden = mode !== "ai" && mode !== "hotseat";
@@ -1392,6 +1395,7 @@ function clearAiTimer() {
 }
 function cancelAi() {
   aiEpoch++;
+  aiRetryAvailable = false;
   cancelAlphaSearch?.();
   extMoveController?.abort();
   clearAiTimer();
@@ -1408,6 +1412,7 @@ function scheduleAi(delay = 0) {
 }
 async function aiTurn() {
   if (!state || state.terminal || busy) return;
+  aiRetryAvailable = false;
   if (mode === "ai" && state.turn === humanSide) return;
   if (mode === "ai_ai" && !running) return;
   const epoch = aiEpoch;
@@ -1438,33 +1443,29 @@ async function aiTurn() {
     const failedBlock = externalTurnBlock();
     if (failedBlock) { pauseExternalTurn(failedBlock); return; }
     console.error(err);
-    if (kind === "ext") {
-      status("External AI unavailable", "using local alpha-beta for this move; check the endpoint card");
-      lastInfo = "External AI failed · local Alpha-beta played";
-      ui.extNote.textContent = err.message;
-      try { ({ action: a } = await searchAlphaBeta(position, { depth: 6, ms: 1200 })); }
-      catch (e) { a = position.moves()[0]; }
-    } else {
-      status("Engine unavailable", "Switching that seat to local Alpha-beta");
-      engineCfg[seat] = "ab:6:1200";
-      updateEngineRows();
-      const fallback = parseEngine(engineCfg[seat]);
-      try {
-        const result = await searchAlphaBeta(position, fallback);
-        a = result.action;
-        lastInfo = `Alpha-beta fallback · ${result.stats.ms} ms`;
-      }
-      catch (e) { a = position.moves()[0]; }
-    }
+    busy = false;
+    aiRetryAvailable = true;
+    if (mode === "ai_ai") running = false;
+    lastInfo = "";
+    render();
+    status(kind === "ext" ? "External AI request failed" : "AI engine failed",
+      err?.message || "No move was made. Retry when ready.");
+    return;
   }
   if (epoch !== aiEpoch) return;
   const finalBlock = externalTurnBlock();
   if (finalBlock) { pauseExternalTurn(finalBlock); return; }
   if (!actionsFor(position).includes(a)) {
-    a = position.moves()[0];
-    if (a === undefined) { busy = false; render(); return; }
+    busy = false;
+    aiRetryAvailable = true;
+    if (mode === "ai_ai") running = false;
+    render();
+    status(kind === "ext" ? "External AI returned no legal move" : "AI returned no legal move",
+      "No move was made. Check the engine response and retry.");
+    return;
   }
   busy = false;
+  aiRetryAvailable = false;
   const totalMs = Math.round(performance.now() - turnStarted);
   lastAiMetrics = { ...lastAiMetrics, engine: kind, totalMs, modelThreads: globalThis.ort?.env.wasm.numThreads || null };
   ui.boardStatus.title = `Last AI turn: ${totalMs} ms${lastAiMetrics.inferenceMs !== undefined ? ` (model ${lastAiMetrics.inferenceMs} ms, search ${lastAiMetrics.searchMs} ms, loading ${lastAiMetrics.loadMs} ms)` : ""}`;
@@ -2098,6 +2099,12 @@ ui.btnPlay.addEventListener("click", () => {
 ui.btnUndo.addEventListener("click", undo);
 ui.btnFlip.addEventListener("click", flipSides);
 ui.btnExternalSetup.addEventListener("click", () => showExternalSetup());
+ui.btnRetryAI.addEventListener("click", () => {
+  aiRetryAvailable = false;
+  if (mode === "ai_ai") running = true;
+  updateButtons();
+  scheduleAi(0);
+});
 ui.btnResult.addEventListener("click", openResult);
 ui.btnResultClose.addEventListener("click", closeResult);
 ui.btnResultBoard.addEventListener("click", closeResult);

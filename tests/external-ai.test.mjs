@@ -58,6 +58,11 @@ test("provider errors and failed fetches cannot echo keys into the displayed err
   }
 });
 
+test("browser network failures explain CORS without blaming a valid key or model", async () => {
+  await assert.rejects(completeExternal(messages, { fetchImpl: async () => { throw new TypeError("Failed to fetch"); } }, profile),
+    /CORS.*preflight.*does not by itself mean the key or model is wrong/);
+});
+
 test("successful provider replies redact an exact echoed API key before display or move parsing", async () => {
   const result = await completeExternal(messages, { fetchImpl: async () => Response.json({
     choices: [{ message: { content: `{"move":"e2","say":"${profile.apiKey}"}` } }],

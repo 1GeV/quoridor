@@ -156,6 +156,6 @@ export async function completeExternal(messages, {
     if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
     if (timeout.aborted) throw new EndpointError("Endpoint timed out after 30 seconds");
     if (error instanceof EndpointError) throw error;
-    throw new EndpointError("The endpoint request failed. Check browser access (CORS), the URL and your connection.");
+    throw new EndpointError("The browser could not reach the endpoint. This may be CORS/preflight, DNS/TLS, network or endpoint availability; it does not by itself mean the key or model is wrong.");
   }
 }

@@ -39,6 +39,10 @@ const api = http.createServer(async (req, res) => {
   const board = kind === "move" ? JSON.parse(typeof last === "string" ? last : last[0].text) : null;
   const call = { kind, model: body.model, body, url: req.url, origin: req.headers.origin };
   calls.push(call);
+  if (String(body.model).startsWith("failed")) {
+    res.writeHead(503, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "mock unavailable" }));
+    return;
+  }
   const reply = () => {
     if (res.destroyed) return;
     res.setHeader("Content-Type", "application/json");
@@ -168,6 +172,20 @@ try {
     if (protocol === "responses") assert.equal(calls[0].body.store, false);
   }
   console.log("PASS: automatic moves work with Chat Completions, Responses and Anthropic Messages");
+
+  await fresh({}, [{}, profile(true, "failed-model")]);
+  await humanMove();
+  await page.wait(() => document.querySelector("#status").textContent === "External AI request failed");
+  await sleep(100);
+  assert.equal(await ply(), 1, "failed external move must leave the board unchanged");
+  assert.equal(moveCount(), 1);
+  assert.equal(await page.run(() => window.__workerStarts), 0, "failed external move must not start local Alpha-beta");
+  assert.equal(await page.run(() => document.querySelector("#btnRetryAI").hidden), false);
+  assert.match(await page.run(() => document.querySelector("#hint").textContent), /HTTP 503/);
+  await save(true, "mock-model");
+  await page.wait(() => quoridor.state().ply === 2);
+  assert.equal(moveCount(), 2);
+  console.log("PASS: external move failures never trigger a local move; the turn can be retried explicitly");
 
   await fresh({}, [{}, profile(true)]);
   await page.run(() => { quoridor.move(67); setTimeout(() => { document.querySelector("#extAllowMoves").checked = false; document.querySelector("#btnExtSave").click(); }, 10); });
