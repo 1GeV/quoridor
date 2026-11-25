@@ -8,13 +8,13 @@
     },
     {
       "path": "index.html",
-      "bytes": 19102,
-      "sha256": "c61bd937d07b34edd3c5d6a56db10c7597aa296f6d2e96788381af3794d68c4e"
+      "bytes": 19138,
+      "sha256": "6f103f49cdd42b762000f74572e11d2e417ee122aab75c4061b0b55c06181075"
     },
     {
       "path": "guide.html",
-      "bytes": 10238,
-      "sha256": "e8f3d91f8d383e75e04255b1777183fca67a4f8f29d5ebd06a3db19e40c783f7"
+      "bytes": 10419,
+      "sha256": "77985ceb0d96da021dadec99ca07e6fb7bf31146d405575bac2b89c4f52ac201"
     },
     {
       "path": "robots.txt",
@@ -83,8 +83,8 @@
     },
     {
       "path": "app.js",
-      "bytes": 90487,
-      "sha256": "dc291a0c1ce9dc8f715fef78f34c210a98106536bbbb7784ff0a922e0f924b78"
+      "bytes": 94480,
+      "sha256": "9666cfd381d852a6cec42dbbcf85775adbd38d4c546a1488f1ab1ab58f33bcdf"
     },
     {
       "path": "rules.js",
@@ -133,8 +133,8 @@
     },
     {
       "path": "external-ai.js",
-      "bytes": 10150,
-      "sha256": "fb8725d69e4bf94a3a8bcb9b2aed6ae8051ab3148991bd3e68848b5208d63631"
+      "bytes": 9984,
+      "sha256": "27ab71378077e0bb1472d574fe55ea779316c6fd25f4c034f0090775c08bc88d"
     },
     {
       "path": "guided.js",
@@ -153,8 +153,8 @@
     },
     {
       "path": "privacy.html",
-      "bytes": 7620,
-      "sha256": "47c7fc19e168d2d32587c7370cc7d81222f67feb0b00d07d553c3da20fc95b68"
+      "bytes": 7835,
+      "sha256": "bfbad5e1c3d903008135a39d19d12aac6bd73b46e1fc167e6feb31db4dee828c"
     },
     {
       "path": "terms.html",

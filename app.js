@@ -164,8 +164,8 @@ const EXT_SESSION_PREFIX = "quoridor.extKey.session.v2.";
 const EMPTY_EXT = () => ({ baseUrl: "", protocol: "auto", fullEndpoint: false, apiKey: "", model: "", effort: "auto", remember: false, allowImage: false, allowMoveRequests: false });
 let extProfiles = [EMPTY_EXT(), EMPTY_EXT()];
 let extSeat = 1;
-let chatHistories = [[], []];
-let chatHistory = chatHistories[extSeat];
+const extConversations = [[], []];
+let extTurnId = 0;
 try {
   const raw = JSON.parse(localStorage.getItem(EXT_KEY) || "{}");
   const list = Array.isArray(raw.profiles) ? raw.profiles : (raw.baseUrl ? [{}, raw] : []);
@@ -186,11 +186,10 @@ try {
     };
   }
 } catch (e) {}
-const extMoveCache = new Map();
-let extMoveController = null;
-let chatBusy = false;
-let chatController = null;
-let chatRequestSeat = null;
+const extMoveCaches = [new Map(), new Map()];
+let extMoveRequest = null;
+let chatRequest = null;
+let extTestController = null;
 
 function persistPrefs() {
   if (["ai", "hotseat", "ai_ai"].includes(mode)) lastPlayMode = mode;
@@ -725,10 +724,15 @@ function updateEngineRows() {
   else if (parseEngine(engineCfg[opponentSeat]).kind === "champion") ui.engineNote.textContent = "Claustrophobia guides the search. The browser loads the 28.5 MB model on the first move.";
   else ui.engineNote.textContent = "Detour search runs on this device without a model download.";
 }
+function externalMoveRunning() {
+  return busy && ["ai", "ai_ai"].includes(mode) && parseEngine(engineCfg[engineSeat(state.turn)]).kind === "ext";
+}
 function updateButtons() {
   ui.boardTools.hidden = mode === "replay";
   ui.btnExternalSetup.hidden = !externalTurnBlock();
-  ui.btnRetryAI.hidden = !aiRetryAvailable || !["ai", "ai_ai"].includes(mode) || state.terminal || (mode === "ai" && state.turn === humanSide);
+  const canCancelMove = externalMoveRunning();
+  ui.btnRetryAI.textContent = canCancelMove ? "Cancel AI move" : "Retry AI move";
+  ui.btnRetryAI.hidden = !canCancelMove && (!aiRetryAvailable || state.terminal || (mode === "ai" && state.turn === humanSide));
   ui.btnPlay.hidden = mode !== "ai_ai";
   ui.btnPlay.textContent = mode === "ai_ai" && running ? "Pause" : "Play";
   ui.btnUndo.hidden = mode !== "ai" && mode !== "hotseat";
@@ -999,20 +1003,28 @@ function persistExt() {
 persistExt();
 
 function cancelChat(seat = null) {
-  if (seat !== null && chatRequestSeat !== seat) return;
-  chatController?.abort();
-  chatController = null;
-  chatRequestSeat = null;
-  chatBusy = false;
+  if (!chatRequest || (seat !== null && chatRequest.seat !== seat)) return;
+  chatRequest.controller.abort();
+  chatRequest = null;
+}
+function resetExternalConversation(seat) {
+  cancelChat(seat);
+  extConversations[seat] = [];
+  extMoveCaches[seat].clear();
+}
+function resetExternalConversations() {
+  extTestController?.abort();
+  for (const seat of [0, 1]) resetExternalConversation(seat);
 }
 function clearAiChat() {
-  cancelChat(extSeat);
-  chatHistory = chatHistories[extSeat] = [];
+  if (extMoveRequest?.seat === extSeat) return;
+  resetExternalConversation(extSeat);
   renderExt();
 }
 function forgetExternalKey() {
   cancelAi();
-  cancelChat(extSeat);
+  resetExternalConversation(extSeat);
+  extTestController?.abort();
   extProfile().apiKey = "";
   extProfile().remember = false;
   extProfile().allowMoveRequests = false;
@@ -1021,7 +1033,6 @@ function forgetExternalKey() {
   ui.extAllowMoves.checked = false;
   persistExt();
   try { sessionStorage.removeItem(EXT_SESSION_PREFIX + extSeat); } catch {}
-  extMoveCache.clear();
   ui.extNote.textContent = "API key removed from this tab and this device. This does not revoke it at the provider.";
   render();
   const block = externalTurnBlock();
@@ -1031,6 +1042,7 @@ async function clearLocalData() {
   if (!window.confirm("Delete this app's saved games, preferences and API settings on this device? This cannot delete data already sent to third parties.")) return;
   cancelAi();
   cancelChat();
+  extTestController?.abort();
   resetPeer();
   for (const key of [PREF_KEY, SAVE_KEY, EXT_KEY]) {
     try { localStorage.removeItem(key); } catch {}
@@ -1041,8 +1053,8 @@ async function clearLocalData() {
   await clearAIAssets();
   location.reload();
 }
-function externalColour() {
-  return (mode === "ai" ? 1 - humanSide : extSeat) === 0 ? "RED" : "BLUE";
+function externalColour(seat = extSeat) {
+  return (mode === "ai" ? 1 - humanSide : seat) === 0 ? "Red" : "Blue";
 }
 function renderExt() {
   const p = extProfile();
@@ -1064,17 +1076,21 @@ function renderExt() {
   if (configured) {
     let host = p.baseUrl;
     try { host = new URL(p.baseUrl).host; } catch (e) {}
-    ui.extSummary.textContent = `${externalColour()} · ${p.model} · ${host}`;
+    ui.extSummary.textContent = `${externalColour().toUpperCase()} · ${p.model} · ${host}`;
   } else {
-    ui.extSummary.textContent = `${externalColour()} · not configured`;
+    ui.extSummary.textContent = `${externalColour().toUpperCase()} · not configured`;
   }
   ui.btnExtToggle.textContent = extFormOpen ? "close" : "settings";
-  ui.chatStatus.textContent = chatBusy ? "thinking" : configured ? "ready" : "offline";
-  ui.btnChatSend.disabled = !configured || chatBusy;
+  const chatting = chatRequest?.seat === extSeat;
+  const moving = extMoveRequest?.seat === extSeat;
+  ui.chatStatus.textContent = chatting ? "thinking" : moving ? "playing" : configured ? "ready" : "offline";
+  ui.btnChatSend.disabled = !chatting && (!configured || !!chatRequest || moving);
+  ui.btnChatSend.textContent = chatting ? "Cancel" : "Send";
+  ui.btnChatSend.setAttribute("aria-label", chatting ? "Cancel chat request" : "Send message to your configured AI provider (live request)");
   ui.btnExtForget.disabled = !p.apiKey;
-  ui.btnChatClear.disabled = !chatHistory.length && !chatBusy;
+  ui.btnChatClear.disabled = moving || (!extConversations[extSeat].length && !chatting);
   ui.chatInput.disabled = !configured;
-  ui.extSeat.disabled = chatBusy;
+  ui.extSeat.disabled = !!chatRequest || !!extTestController;
   renderChat();
 }
 function activeExternalSeats() {
@@ -1083,7 +1099,6 @@ function activeExternalSeats() {
 }
 function setExtSeat(seat) {
   extSeat = seat === 0 ? 0 : 1;
-  chatHistory = chatHistories[extSeat];
   extFormOpen = !extConfigured(extSeat);
   renderExt();
 }
@@ -1094,7 +1109,6 @@ function updateExtVisibility() {
   if (!show) return;
   if (!seats.includes(extSeat)) {
     extSeat = seats[0];
-    chatHistory = chatHistories[extSeat];
   }
   ui.extSeatRow.classList.toggle("hide", !(mode === "ai_ai" && seats.length > 1));
   if (!extConfigured()) extFormOpen = true;
@@ -1119,13 +1133,14 @@ function readExtFields() {
 function saveExtFromFields() {
   const profile = readExtFields();
   if (!profile) return;
+  extTestController?.abort();
   const previous = extProfile();
   const conversationChanged = previous.baseUrl !== profile.baseUrl || previous.protocol !== profile.protocol ||
     previous.fullEndpoint !== profile.fullEndpoint || previous.model !== profile.model || previous.apiKey !== profile.apiKey;
-  if (conversationChanged || previous.effort !== profile.effort) cancelChat(extSeat);
-  if (conversationChanged) chatHistory = chatHistories[extSeat] = [];
+  if (conversationChanged) resetExternalConversation(extSeat);
+  else if (previous.effort !== profile.effort) cancelChat(extSeat);
   extProfiles[extSeat] = profile;
-  extMoveCache.clear();
+  extMoveCaches[extSeat].clear();
   // Cancel any scheduled or in-flight move from the old settings.
   if (engineSeat(state.turn) === extSeat && parseEngine(engineCfg[extSeat]).kind === "ext") cancelAi();
   persistExt();
@@ -1143,28 +1158,60 @@ function saveExtFromFields() {
 function extComplete(messages, options = {}, profile = extProfile()) {
   return completeExternal(messages, options, profile);
 }
-function boardContext(position, records) {
-  const legal = position.terminal ? [] : actionsFor(position).map(actionStr);
+function boardContext(position, records, legal = position.terminal ? [] : actionsFor(position)) {
   const horizontal = [], vertical = [];
   for (let i = 0; i < 64; i++) {
     if (position.hw[i]) horizontal.push(actionStr(A_H + i));
     if (position.vw[i]) vertical.push(actionStr(A_V + i));
   }
   const result = position.winner === null ? null : position.winner === 0 ? "Red" : "Blue";
-  return JSON.stringify({
+  return {
     pawns: { Red: actionStr(position.pos[0]), Blue: actionStr(position.pos[1]) },
     wallsLeft: { Red: position.walls[0], Blue: position.walls[1] },
     placedWalls: [...horizontal, ...vertical],
     sideToMove: position.terminal ? null : position.turn === 0 ? "Red" : "Blue",
     movesPlayed: position.ply, result,
     recentMoves: records.slice(-12).map((m) => ({ side: m.side === 0 ? "Red" : "Blue", action: m.text })),
-    legalActions: legal,
-  });
+    legalActions: legal.map(actionStr),
+  };
 }
 const EXTERNAL_RULES = "Quoridor 9×9: coordinates a–i and 1–9 are unflipped. Red aims for row 1, Blue row 9. " +
   "An H e5 wall spans columns e and f between rows 5 and 6. A V e5 wall spans rows 5 and 6 between columns e and f. " +
   "A pawn can step, jump over an adjacent opponent, or sidestep it when a straight jump is blocked. " +
   "Follow the legalActions list. The first pawn to reach its goal row wins.";
+const EXTERNAL_SYSTEM = `${EXTERNAL_RULES} You play one seat and can chat about the game. ` +
+  "The latest request specifies your side and the current board. Earlier boards are snapshots. " +
+  "For a chat request, answer the message naturally. For a move request, consider any relevant strategy or preferences from the conversation. " +
+  'Choose one action from the latest legalActions. A reply such as {"move":"e8"} is sufficient. ' +
+  'You may add a short "say" message or a "plan" array of brief ideas if helpful. Both are optional. ' +
+  'If you need an image and boardImageAvailable is true, you may reply {"want_board":true}.';
+const EXTERNAL_HISTORY_PER_KIND = 12;
+
+function externalHistory(seat) {
+  return extConversations[seat].filter((turn) => turn.reply);
+}
+function externalMessages(history, request) {
+  return [
+    { role: "system", content: EXTERNAL_SYSTEM },
+    ...history.flatMap((turn) => [
+      { role: "user", content: turn.request }, { role: "assistant", content: turn.reply },
+    ]),
+    { role: "user", content: request },
+  ];
+}
+function appendExternalTurn(seat, turn) {
+  let history = extConversations[seat];
+  const sameKind = history.filter((entry) => entry.kind === turn.kind);
+  const limit = turn.kind === "error" ? 4 : EXTERNAL_HISTORY_PER_KIND;
+  if (sameKind.length >= limit) {
+    // Trim in batches so a full conversation can still reuse its prompt prefix
+    // on the next few turns. A long series of moves leaves the chat intact.
+    const through = sameKind[turn.kind === "error" ? 0 : 3].id;
+    history = extConversations[seat] = history.filter((entry) => entry.kind !== turn.kind || entry.id > through);
+  }
+  history.push({ ...turn, id: ++extTurnId });
+}
+
 function parseExternalReply(content, legal) {
   const text = content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1");
   let reply;
@@ -1177,7 +1224,8 @@ function parseExternalReply(content, legal) {
   const annotation = reply.say ?? reply.comment ?? reply.message;
   const say = typeof annotation === "string" ? annotation.trim().slice(0, 500) : "";
   const plan = Array.isArray(reply.plan) ? reply.plan.filter((item) => typeof item === "string")
-    .slice(0, 6).map((item) => item.trim().slice(0, 140)).filter(Boolean) : [];
+    .slice(0, 6).map((item) => item.trim().slice(0, 140)).filter(Boolean)
+    : typeof reply.plan === "string" && reply.plan.trim() ? [reply.plan.trim().slice(0, 500)] : [];
   return { action, say, plan, wantBoard: reply.want_board === true };
 }
 function captureBoardImage() {
@@ -1190,133 +1238,133 @@ function captureBoardImage() {
   g.drawImage(cvs, 0, 0, S, S);
   return out.toDataURL("image/jpeg", .72);
 }
-async function externalMoveAction(position, side, signal) {
+async function externalMoveAction(position, side, seat, signal) {
   signal.throwIfAborted();
-  const seat = engineSeat(side);
   const profile = extProfile(seat);
   const legal = actionsFor(position);
-  const allowImage = profile.allowImage;
-  const context = boardContext(position, moves);
-  const cacheKey = JSON.stringify([seat, side, profile.baseUrl, profile.protocol, profile.fullEndpoint, profile.model, profile.effort, allowImage, context]);
-  const hit = extMoveCache.get(cacheKey);
+  const request = JSON.stringify({ task: "move", yourSide: side === 0 ? "Red" : "Blue",
+    boardImageAvailable: profile.allowImage, ...boardContext(position, moves, legal) });
+  const history = externalHistory(seat);
+  const cacheKey = JSON.stringify([history.map((turn) => turn.id), request]);
+  const hit = extMoveCaches[seat].get(cacheKey);
   if (hit) return { ...hit, cached: true, cacheRead: 0 };
-  const imageRule = allowImage ? 'If a rendered board is necessary, reply {"want_board":true} with no move.' : "Make the decision using the supplied position.";
-  const base = [
-    { role: "system", content: `${EXTERNAL_RULES} Return one legal next action as JSON, for example {"move":"e8","say":"Short reason","plan":["Optional idea"]}. The plan is commentary only. ${imageRule}` },
-    { role: "user", content: context },
-  ];
+  const base = externalMessages(history, request);
   let messages = base;
   let usedImage = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await extComplete(messages, { temperature: 0, maxTokens: 180, signal }, profile);
     signal.throwIfAborted();
     const parsed = parseExternalReply(res.content, legal);
-    if (parsed.action !== undefined) {
-      const result = { ...parsed, usedImage, cacheRead: res.cacheRead };
-      if (extMoveCache.size >= 60) extMoveCache.delete(extMoveCache.keys().next().value);
-      extMoveCache.set(cacheKey, result);
-      return result;
-    }
-    if (!parsed.wantBoard || !allowImage || usedImage) break;
+    if (parsed.action !== undefined) return { ...parsed, request, cacheKey, usedImage, cacheRead: res.cacheRead };
+    if (!parsed.wantBoard || !profile.allowImage || usedImage) break;
     usedImage = true;
-    messages = [...base, { role: "assistant", content: res.content }, {
+    messages = [...base, { role: "assistant", content: '{"want_board":true}' }, {
       role: "user", content: [
-        { type: "text", text: "This is the current board image. Read the coordinate labels for orientation. Reply with one action from legalActions." },
+        { type: "text", text: "Here is the current board. Use the coordinate labels and choose one action from legalActions." },
         { type: "image_url", image_url: { url: captureBoardImage() } },
       ],
     }];
   }
   throw new Error("The model did not return one legal action");
 }
-function noteExternalMove(action, say, plan = [], seat = extSeat, info = {}) {
-  if (!say && !plan.length) return;
-  const suffix = plan.length ? ` Plan: ${plan.join(" → ")}` : "";
-  const arr = chatHistories[seat];
-  arr.push({ role: "assistant", content: `${action}: ${say}${suffix}`, seat,
-    cached: !!info.cached, cacheRead: info.cacheRead || 0 });
-  if (arr.length > 24) arr.splice(0, arr.length - 24);
-  if (seat === extSeat) renderChat();
+async function requestExternalMove(position, side, seat, epoch) {
+  // A message already submitted to this seat belongs before its next move.
+  if (chatRequest?.seat === seat) {
+    status(`${engineName(side)} to move`, "Waiting for the chat reply");
+    await chatRequest.done;
+  }
+  if (epoch !== aiEpoch || !extConfigured(seat) || !extProfile(seat).allowMoveRequests) return null;
+  const moveRequest = extMoveRequest = { seat, controller: new AbortController() };
+  renderExt();
+  status(`${engineName(side)} is thinking`, "requesting a move from your configured endpoint");
+  try {
+    return await externalMoveAction(position, side, seat, moveRequest.controller.signal);
+  } finally {
+    if (extMoveRequest === moveRequest) {
+      extMoveRequest = null;
+      renderExt();
+    }
+  }
+}
+function noteExternalMove(seat, moveIndex, result) {
+  const { action, request, say, plan, cacheRead, cached, cacheKey } = result;
+  const move = actionStr(action);
+  const reply = JSON.stringify({ move, ...(say && { say }), ...(plan.length && { plan }) });
+  const cache = extMoveCaches[seat];
+  if (!cached) {
+    if (cache.size >= 60) cache.delete(cache.keys().next().value);
+    cache.set(cacheKey, result);
+  }
+  appendExternalTurn(seat, { kind: "move", moveIndex, request, reply, cacheRead, cached,
+    text: [move, say, plan.length ? `Plan: ${plan.join(" → ")}` : ""].filter(Boolean).join(" · ") });
 }
 function renderChat() {
   ui.chatLog.innerHTML = "";
-  if (!chatHistory.length) {
+  const history = extConversations[extSeat];
+  const pending = chatRequest?.seat === extSeat ? chatRequest : null;
+  if (!history.length && !pending) {
     const e = document.createElement("div");
     e.className = "chat-empty";
-    e.textContent = extConfigured()
-      ? "Ask the model about this board."
-      : "Set up an endpoint to chat.";
+    e.textContent = extConfigured() ? "Discuss the game or suggest a strategy." : "Set up an endpoint to chat.";
     ui.chatLog.appendChild(e);
     return;
   }
-  for (const m of chatHistory) {
+  const line = (text, label, user = false) => {
     const d = document.createElement("div");
-    d.className = "chat-msg " + (m.role === "user" ? "user" : "bot");
+    d.className = "chat-msg " + (user ? "user" : "bot");
     const meta = document.createElement("span");
     meta.className = "meta";
-    meta.textContent = m.role === "user" ? "YOU" : (m.cached ? "EXTERNAL · RESULT CACHE" : "EXTERNAL");
-    if (m.cacheRead) meta.textContent += ` · PROMPT CACHE ${m.cacheRead} TOK`;
-    meta.textContent += ` · SEAT ${externalColour()}`;
+    meta.textContent = label;
     const body = document.createElement("span");
-    body.textContent = m.content;
+    body.textContent = text;
     d.append(meta, body);
     ui.chatLog.appendChild(d);
+  };
+  for (const turn of history) {
+    if (turn.question) line(turn.question, "YOU", true);
+    let label = turn.cached ? "EXTERNAL · RESULT CACHE" : "EXTERNAL";
+    if (turn.cacheRead) label += ` · PROMPT CACHE ${turn.cacheRead} TOK`;
+    line(turn.text, label);
   }
+  if (pending) line(pending.question, "YOU", true);
   ui.chatLog.scrollTop = ui.chatLog.scrollHeight;
 }
-async function sendChat() {
-  const text = ui.chatInput.value.trim().slice(0, 500);
-  if (!text || chatBusy) return;
-  if (!extConfigured()) { status("Chat needs an external endpoint", "open settings in the External AI card"); return; }
-  chatBusy = true;
-  const controller = chatController = new AbortController();
+function sendChat() {
+  const question = ui.chatInput.value.trim().slice(0, 500);
   const seat = extSeat;
-  chatRequestSeat = seat;
-  const conversation = chatHistories[seat];
-  conversation.push({ role: "user", content: text });
+  if (!question || chatRequest || extMoveRequest?.seat === seat) return;
+  if (!extConfigured(seat)) { status("Chat needs an external endpoint", "open settings in the External AI card"); return; }
+  const pending = chatRequest = { seat, question, controller: new AbortController() };
   ui.chatInput.value = "";
-  renderChat();
+  pending.done = completeChat(pending);
   renderExt();
+}
+async function completeChat({ seat, question, controller }) {
+  const request = JSON.stringify({ task: "chat", yourSide: externalColour(seat), ...boardContext(state, moves), message: question });
+  const messages = externalMessages(externalHistory(seat), request);
   try {
-    const prior = conversation.slice(0, -1).filter((m) => !m.failed).slice(-8).map((m) => ({ role: m.role, content: m.content }));
-    const messages = [
-      { role: "system", content: `${EXTERNAL_RULES} You are a Quoridor assistant. Use the board attached to the newest question. Keep replies under 120 words.` },
-      ...prior,
-      { role: "user", content: `Current board:\n${boardContext(state, moves)}\n\nQuestion: ${text}` },
-    ];
     const { content, cacheRead } = await extComplete(messages, { temperature: 0.3, maxTokens: 420, signal: controller.signal }, extProfile(seat));
     if (controller.signal.aborted) return;
-    conversation.push({ role: "assistant", content, cacheRead });
-    if (conversation.length > 24) conversation.splice(0, conversation.length - 24);
+    const reply = content.slice(0, 6000);
+    appendExternalTurn(seat, { kind: "chat", request, question, reply, cacheRead, text: reply });
   } catch (err) {
-    if (!controller.signal.aborted) conversation.push({ role: "assistant", failed: true, content: "Request failed: " + err.message });
+    if (!controller.signal.aborted) appendExternalTurn(seat, { kind: "error", question, text: "Request failed: " + err.message });
   } finally {
-    if (chatController === controller) { chatController = null; chatRequestSeat = null; chatBusy = false; }
-    renderChat();
-    renderExt();
+    if (chatRequest?.controller === controller) {
+      chatRequest = null;
+      renderExt();
+    }
   }
 }
 
 async function chooseFor(side, position, epoch) {
   const seat = engineSeat(side);
   const cfg = parseEngine(engineCfg[seat]);
-  if (cfg.kind !== "ext" && position.walls[0] + position.walls[1] <= 1) {
+  if (position.walls[0] + position.walls[1] <= 1) {
     const { action, stats } = await searchAlphaBeta(position, { depth: 6, ms: cfg.ms ?? 1200 });
     if (epoch !== aiEpoch) return null;
     lastInfo = `Solved endgame · ${stats.ms} ms`;
     return action;
-  }
-  if (cfg.kind === "ext") {
-    if (!extConfigured(seat) || !extProfile(seat).allowMoveRequests) return null;
-    const controller = new AbortController();
-    extMoveController = controller;
-    let r;
-    try { r = await externalMoveAction(position, side, controller.signal); }
-    finally { if (extMoveController === controller) extMoveController = null; }
-    if (epoch !== aiEpoch) return null;
-    lastExtSay = r.say || "";
-    lastInfo = `external ${extProfile(seat).model}${r.cached ? " · result cache" : ""}${r.cacheRead ? ` · prompt cache ${r.cacheRead} tok` : ""}${r.usedImage ? " · vision" : ""}`;
-    noteExternalMove(actionStr(r.action), r.say, r.plan, seat, r);
-    return r.action;
   }
   if (cfg.kind === "sigma") {
     const search = sigmaQueue.then(async () => {
@@ -1406,7 +1454,8 @@ function cancelAi() {
   aiEpoch++;
   aiRetryAvailable = false;
   cancelAlphaSearch?.();
-  extMoveController?.abort();
+  extMoveRequest?.controller.abort();
+  extMoveRequest = null;
   clearAiTimer();
   busy = false;
 }
@@ -1445,8 +1494,14 @@ async function aiTurn() {
   const delayedBlock = externalTurnBlock();
   if (delayedBlock) { pauseExternalTurn(delayedBlock); return; }
   let a = null;
+  let external = null;
   try {
-    a = await chooseFor(side, position, epoch);
+    if (kind === "ext") {
+      external = await requestExternalMove(position, side, seat, epoch);
+      a = external?.action;
+    } else {
+      a = await chooseFor(side, position, epoch);
+    }
   } catch (err) {
     if (epoch !== aiEpoch) return;
     const failedBlock = externalTurnBlock();
@@ -1478,7 +1533,11 @@ async function aiTurn() {
   const totalMs = Math.round(performance.now() - turnStarted);
   lastAiMetrics = { ...lastAiMetrics, engine: kind, totalMs, modelThreads: globalThis.ort?.env.wasm.numThreads || null };
   ui.boardStatus.title = `Last AI turn: ${totalMs} ms${lastAiMetrics.inferenceMs !== undefined ? ` (model ${lastAiMetrics.inferenceMs} ms, search ${lastAiMetrics.searchMs} ms, loading ${lastAiMetrics.loadMs} ms)` : ""}`;
-  const over = applyAction(a);
+  if (external) {
+    lastExtSay = external.say || "";
+    lastInfo = `external ${extProfile(seat).model}${external.cached ? " · result cache" : ""}${external.cacheRead ? ` · prompt cache ${external.cacheRead} tok` : ""}${external.usedImage ? " · vision" : ""}`;
+  }
+  const over = applyAction(a, { external });
   if (!over) afterMove();
 }
 function afterMove() {
@@ -1496,7 +1555,7 @@ function afterMove() {
     else status("Waiting for the other player", "");
   }
 }
-function applyAction(a, { remote = false } = {}) {
+function applyAction(a, { remote = false, external = null } = {}) {
   if (!state || state.terminal || !state.legal().includes(a)) return false;
   const before = state;
   const side = before.turn;
@@ -1506,6 +1565,7 @@ function applyAction(a, { remote = false } = {}) {
   history.push(state);
   lastAction = a;
   for (const ag of Object.values(sigmaAgents)) if (ag) ag.advance(a);
+  if (external) noteExternalMove(engineSeat(side), moves.length, external);
   moves.push({ n: Math.floor(beforePly / 2) + 1, side, a, text: actionStr(a) });
   if (!remote) netSend({ t: "move", a, ply: beforePly });
   if (state.terminal) { finish(); return true; }
@@ -1527,6 +1587,7 @@ function newGame({ broadcast = true } = {}) {
     return;
   }
   cancelAi();
+  resetExternalConversations();
   replayPlaying = false;
   replayTimer = null;
   state = State.new();
@@ -1590,6 +1651,10 @@ function undo() {
   state = history[index];
   history.length = index + 1;
   moves.length = index;
+  cancelChat();
+  for (const seat of [0, 1]) {
+    extConversations[seat] = extConversations[seat].filter((turn) => turn.kind !== "move" || turn.moveIndex < index);
+  }
   refreshLocalPosition();
 }
 function flipSides() {
@@ -1649,6 +1714,7 @@ function loadRecord(rec, atEnd = false) {
   }
   if (mode !== "replay") ui.continueMode.value = mode === "hotseat" ? "hotseat" : (humanSide === 0 ? "red" : "blue");
   cancelAi();
+  resetExternalConversations();
   clearReplay();
   mode = "replay";
   running = false;
@@ -1781,6 +1847,7 @@ function setMode(next) {
   running = false;
   savedLines = new Set();
   if (next === "room") {
+    resetExternalConversations();
     state = State.new();
     history = [state];
     moves = [];
@@ -1793,6 +1860,7 @@ function setMode(next) {
     return;
   }
   if (next === "replay") {
+    resetExternalConversations();
     state = State.new();
     history = [state];
     moves = [];
@@ -2112,6 +2180,14 @@ ui.btnUndo.addEventListener("click", undo);
 ui.btnFlip.addEventListener("click", flipSides);
 ui.btnExternalSetup.addEventListener("click", () => showExternalSetup());
 ui.btnRetryAI.addEventListener("click", () => {
+  if (externalMoveRunning()) {
+    cancelAi();
+    if (mode === "ai_ai") running = false;
+    aiRetryAvailable = true;
+    render();
+    status(`${turnName()} to move`, "External AI move request cancelled.");
+    return;
+  }
   aiRetryAvailable = false;
   if (mode === "ai_ai") running = true;
   updateButtons();
@@ -2186,19 +2262,31 @@ ui.btnExtForget.addEventListener("click", forgetExternalKey);
 ui.btnChatClear.addEventListener("click", clearAiChat);
 ui.btnClearLocal.addEventListener("click", clearLocalData);
 ui.btnExtTest.addEventListener("click", async () => {
+  if (extTestController) { extTestController.abort(); return; }
   const profile = readExtFields();
   if (!profile) return;
-  ui.extNote.textContent = "Testing endpoint...";
   const seat = extSeat;
-  ui.btnExtTest.disabled = true;
+  const controller = extTestController = new AbortController();
+  ui.extNote.textContent = "Testing endpoint...";
+  ui.btnExtTest.textContent = "Cancel test";
+  renderExt();
   try {
-    const r = await extComplete([{ role: "user", content: "Reply with exactly: OK" }], { temperature: 0, maxTokens: 20 }, profile);
-    if (extSeat === seat) ui.extNote.textContent = `Live response: ${r.content.slice(0, 60)}`;
+    const r = await extComplete([{ role: "user", content: "Reply with exactly: OK" }],
+      { temperature: 0, maxTokens: 20, signal: controller.signal }, profile);
+    if (extSeat === seat && !controller.signal.aborted) ui.extNote.textContent = `Live response: ${r.content.slice(0, 60)}`;
   } catch (err) {
-    if (extSeat === seat) ui.extNote.textContent = "Test failed: " + err.message;
-  } finally { ui.btnExtTest.disabled = false; }
+    if (extSeat === seat && !controller.signal.aborted) ui.extNote.textContent = "Test failed: " + err.message;
+    if (controller.signal.aborted && ui.extNote.textContent === "Testing endpoint...") ui.extNote.textContent = "Test cancelled.";
+  } finally {
+    extTestController = null;
+    ui.btnExtTest.textContent = "Test";
+    renderExt();
+  }
 });
-ui.btnChatSend.addEventListener("click", sendChat);
+ui.btnChatSend.addEventListener("click", () => {
+  if (chatRequest?.seat === extSeat) { cancelChat(extSeat); renderExt(); }
+  else sendChat();
+});
 ui.chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 for (const b of ui.seg.querySelectorAll("button")) {
   b.addEventListener("click", () => { if (b.dataset.mode !== mode) setMode(b.dataset.mode); });

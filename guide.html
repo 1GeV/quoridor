@@ -88,11 +88,11 @@
   <p>You do not need external AI to play. To use it, select <strong>External AI</strong>, enter an endpoint and model, choose its API format, then explicitly enable and save permission for automatic move requests. The supported formats are Chat Completions, Responses and Anthropic Messages. A local model server can also be used if the browser can reach it and its CORS/local-network settings allow the request.</p>
   <ul>
     <li>Requests go directly from your browser to the endpoint you configure. If the browser reports a CORS error, check that your provider allows this site’s origin and accepts a preflight OPTIONS request before checking the API key.</li>
-    <li>Move requests include the board and legal actions. Chat requests include your question, the current board and a limited recent conversation history. Chat and move requests are separate; they are not one persistent provider session.</li>
+    <li>Chat and automatic moves for one AI seat share recent history during the game. Suggest a strategy in chat and the model can take it into account on its next turn. Both requests include the latest board and can send earlier chat to your provider. Clear this AI conversation to start over at the current board.</li>
     <li>The provider may charge for requests, retain data or apply its own privacy and age rules. Check its terms before use. No key is needed for a service that does not require authentication.</li>
     <li>If a move request fails or returns an illegal move, the board waits on the same turn. Use <strong>Retry AI move</strong> to try again.</li>
   </ul>
-  <p><strong>Effort</strong> sets the reasoning level for moves, chat and Test. Choose <strong>Provider default</strong> to let the service choose. Supported levels depend on the model and provider. Extra high and Max allow longer requests and may increase provider charges.</p>
+  <p><strong>Effort</strong> sets the reasoning level for moves, chat and Test. Choose <strong>Provider default</strong> to let the service choose. Supported levels depend on the model and provider. Extra high and Max may take longer and increase provider charges. You can cancel a pending request from the game or AI controls. The provider can still enforce its own time limit.</p>
   <div class="guide-example-compact">
     <figure class="guide-figure">
         <img src="./assets/guide/external-ai.webp" width="650" height="1208" loading="lazy" decoding="async" alt="External AI form with a placeholder URL, an empty API key field, Provider default effort and automatic moves unchecked">

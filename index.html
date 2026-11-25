@@ -198,12 +198,13 @@
             <p id="extEndpointHelp">Base URLs such as https://api.example.com/v1 work with Custom endpoint unchecked. Standard full endpoint paths are detected automatically. Check the option only to use a custom URL without adding a path.</p>
             <p id="extKeyHelp">Leave the key blank only if your endpoint requires no key. A local model server can use an address such as http://localhost:1234/v1 and its loaded model ID. It must allow this site's origin through CORS; your browser may also ask for permission to connect. Localhost refers to the device running this browser.</p>
             <p>Effort applies to moves, chat and Test. Supported levels depend on your model and provider. Extra high and Max can take longer and cost more.</p>
-            <p id="extMovesHelp">Without move permission, this AI seat waits. Enable the option and Save &amp; apply to continue; in AI vs AI, also press Play. Test and chat are separate requests.</p>
-            <p>Requests go directly to your endpoint with your key and board context. Chat adds your question and recent conversation. Identical move requests may reuse a result in this tab; provider prompt caching depends on your provider. <a href="./privacy.html#external-ai">Privacy details</a></p>
+            <p id="extMovesHelp">Without move permission, this AI seat waits. Enable the option and Save &amp; apply to continue. In AI vs AI, also press Play. Test and chat can send requests independently.</p>
+            <p>Your endpoint receives the board and recent messages for this AI seat, including during automatic moves. The provider may charge for requests. <a href="./privacy.html#external-ai">Privacy details</a></p>
           </details>
         </div>
         <div class="section-head" style="margin-top:14px">AI CHAT <span class="value" id="chatStatus">offline</span></div>
-          <div class="chatlog" id="chatLog"><div class="chat-empty">Ask the model about this board.</div></div>
+        <div class="note">Moves can follow your strategy and send recent chat to your provider.</div>
+        <div class="chatlog" id="chatLog"><div class="chat-empty">Discuss the game or suggest a strategy.</div></div>
         <div class="chat-row">
           <input id="chatInput" maxlength="500" placeholder="Type a message..." aria-label="chat message">
           <button class="btn" id="btnChatSend" aria-label="Send message to your configured AI provider (live request)">Send</button>
