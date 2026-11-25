@@ -85,6 +85,7 @@ const ui = {
   btnPlay: $("btnPlay"),
   btnUndo: $("btnUndo"),
   btnFlip: $("btnFlip"),
+  btnExternalSetup: $("btnExternalSetup"),
   speed: $("speed"),
   speedText: $("speedText"),
   replayLabel: $("replayLabel"),
@@ -181,6 +182,7 @@ const extMoveCache = new Map();
 let extMoveController = null;
 let chatBusy = false;
 let chatController = null;
+let chatRequestSeat = null;
 
 function persistPrefs() {
   if (["ai", "hotseat", "ai_ai"].includes(mode)) lastPlayMode = mode;
@@ -694,9 +696,9 @@ function updateEngineRows() {
   else if (mode === "ai_ai") ui.engineNote.textContent = "Each side can use a different engine.";
   else if (parseEngine(engineCfg[opponentSeat]).kind === "ext") ui.engineNote.textContent = extConfigured(opponentSeat)
     ? extProfile(opponentSeat).allowMoveRequests
-      ? "Live external requests are enabled for this seat. The provider may charge per turn; chat sends a separate request."
-      : "Automatic external move requests are off. This seat uses local Alpha-beta; chat and Test remain explicit provider requests."
-    : "External AI selected. Open the card below to set Base URL, key, and model.";
+      ? "External AI ready."
+      : "Enable automatic move requests in External AI settings to play."
+    : "Set up your endpoint in External AI settings.";
   else if (parseEngine(engineCfg[opponentSeat]).kind === "sigma") ui.engineNote.textContent = "The first move loads the model. Each tier is a simulation target with a time limit. Actual counts appear after each move.";
   else if (parseEngine(engineCfg[opponentSeat]).kind === "guided") ui.engineNote.textContent = "Sigma suggests which moves Detour should search first. The model loads on the first move.";
   else if (parseEngine(engineCfg[opponentSeat]).kind === "champion") ui.engineNote.textContent = "Claustrophobia guides the search. The browser loads the 28.5 MB model on the first move.";
@@ -704,6 +706,7 @@ function updateEngineRows() {
 }
 function updateButtons() {
   ui.boardTools.hidden = mode === "replay";
+  ui.btnExternalSetup.hidden = !externalTurnBlock();
   ui.btnPlay.hidden = mode !== "ai_ai";
   ui.btnPlay.textContent = mode === "ai_ai" && running ? "Pause" : "Play";
   ui.btnUndo.hidden = mode !== "ai" && mode !== "hotseat";
@@ -894,6 +897,34 @@ let extFormOpen = !(extProfiles[extSeat].baseUrl && extProfiles[extSeat].model);
 let extFieldsSeat = null;
 function extProfile(seat = extSeat) { return extProfiles[seat]; }
 function extConfigured(seat = extSeat) { const p = extProfile(seat); return !!(p.baseUrl && p.model); }
+function externalTurnBlock() {
+  if (!state || state.terminal || !["ai", "ai_ai"].includes(mode)) return null;
+  if (mode === "ai" && state.turn === humanSide) return null;
+  const seat = engineSeat(state.turn);
+  if (parseEngine(engineCfg[seat]).kind !== "ext") return null;
+  const configured = extConfigured(seat);
+  return configured && extProfile(seat).allowMoveRequests ? null : { seat, configured };
+}
+function showExternalSetup(block = externalTurnBlock()) {
+  if (!block) return;
+  if (extSeat !== block.seat) setExtSeat(block.seat);
+  extFormOpen = true;
+  renderExt();
+  ui.extCard.scrollIntoView({ behavior: "smooth", block: "center" });
+  (block.configured ? ui.extAllowMoves : ui.extBase).focus({ preventScroll: true });
+}
+function pauseExternalTurn(block) {
+  busy = false;
+  if (mode === "ai_ai") running = false;
+  if (extSeat !== block.seat) setExtSeat(block.seat);
+  extFormOpen = true;
+  render();
+  const resume = mode === "ai_ai" ? " Then press Play." : "";
+  status(block.configured ? "External AI needs permission" : "Set up external AI",
+    (block.configured
+      ? "Enable automatic move requests, then Save & apply."
+      : "Enter the endpoint and model, allow move requests, then Save & apply.") + resume);
+}
 function persistExt() {
   const payload = {
     profiles: extProfiles.map((p, i) => {
@@ -910,14 +941,21 @@ function persistExt() {
 // Also removes legacy unremembered keys from persistent storage on startup.
 persistExt();
 
-function clearAiChat() {
+function cancelChat(seat = null) {
+  if (seat !== null && chatRequestSeat !== seat) return;
   chatController?.abort();
+  chatController = null;
+  chatRequestSeat = null;
+  chatBusy = false;
+}
+function clearAiChat() {
+  cancelChat(extSeat);
   chatHistory = chatHistories[extSeat] = [];
   renderExt();
 }
 function forgetExternalKey() {
   cancelAi();
-  chatController?.abort();
+  cancelChat(extSeat);
   extProfile().apiKey = "";
   extProfile().remember = false;
   extProfile().allowMoveRequests = false;
@@ -928,12 +966,14 @@ function forgetExternalKey() {
   try { sessionStorage.removeItem(EXT_SESSION_PREFIX + extSeat); } catch {}
   extMoveCache.clear();
   ui.extNote.textContent = "API key removed from this tab and this device. This does not revoke it at the provider.";
-  renderExt();
+  render();
+  const block = externalTurnBlock();
+  if (block) pauseExternalTurn(block);
 }
 function clearLocalData() {
   if (!window.confirm("Delete this app's saved games, preferences and API settings on this device? This cannot delete data already sent to third parties.")) return;
   cancelAi();
-  chatController?.abort();
+  cancelChat();
   resetPeer();
   for (const key of [PREF_KEY, SAVE_KEY, EXT_KEY]) {
     try { localStorage.removeItem(key); } catch {}
@@ -967,13 +1007,12 @@ function renderExt() {
     try { host = new URL(p.baseUrl).host; } catch (e) {}
     ui.extSummary.textContent = `${externalColour()} · ${p.model} · ${host}`;
   } else {
-    ui.extSummary.textContent = `${externalColour()} · not configured. Supports Chat Completions, Responses and Anthropic Messages.`;
+    ui.extSummary.textContent = `${externalColour()} · not configured`;
   }
   ui.btnExtToggle.textContent = extFormOpen ? "close" : "settings";
   ui.chatStatus.textContent = chatBusy ? "thinking" : configured ? "ready" : "offline";
   ui.btnChatSend.disabled = !configured || chatBusy;
   ui.btnExtForget.disabled = !p.apiKey;
-  ui.extAllowMoves.disabled = !configured;
   ui.btnChatClear.disabled = !chatHistory.length && !chatBusy;
   ui.chatInput.disabled = !configured;
   ui.extSeat.disabled = chatBusy;
@@ -1023,16 +1062,23 @@ function saveExtFromFields() {
   const previous = extProfile();
   if (previous.baseUrl !== profile.baseUrl || previous.protocol !== profile.protocol || previous.fullEndpoint !== profile.fullEndpoint ||
       previous.model !== profile.model || previous.apiKey !== profile.apiKey) {
+    cancelChat(extSeat);
     chatHistory = chatHistories[extSeat] = [];
   }
   extProfiles[extSeat] = profile;
   extMoveCache.clear();
-  if (engineSeat(state.turn) === extSeat && extMoveController) cancelAi();
+  // Cancel the entire turn, including the initial delay and any local error fallback.
+  if (engineSeat(state.turn) === extSeat && parseEngine(engineCfg[extSeat]).kind === "ext") cancelAi();
   persistExt();
   extFormOpen = false;
-  ui.extNote.textContent = profile.remember ? "Saved. The key is remembered on this device." : "Saved. The key is available in this tab session.";
+  ui.extNote.textContent = profile.remember && profile.apiKey ? "Saved. Key remembered on this device." : "Saved.";
   renderExt();
   render();
+  const block = externalTurnBlock();
+  if (block) { pauseExternalTurn(block); return; }
+  if (mode === "ai_ai" && !running && engineSeat(state.turn) === extSeat) {
+    status(`${turnName()} to move`, "External AI settings saved. Press Play to resume.");
+  }
   scheduleAi();
 }
 function extComplete(messages, options = {}, profile = extProfile()) {
@@ -1086,11 +1132,13 @@ function captureBoardImage() {
   return out.toDataURL("image/jpeg", .72);
 }
 async function externalMoveAction(position, side, signal) {
-  const profile = extProfile(engineSeat(side));
+  signal.throwIfAborted();
+  const seat = engineSeat(side);
+  const profile = extProfile(seat);
   const legal = actionsFor(position);
   const allowImage = profile.allowImage;
   const context = boardContext(position, moves);
-  const cacheKey = JSON.stringify([side, profile.baseUrl, profile.protocol, profile.fullEndpoint, profile.model, allowImage, context]);
+  const cacheKey = JSON.stringify([seat, side, profile.baseUrl, profile.protocol, profile.fullEndpoint, profile.model, allowImage, context]);
   const hit = extMoveCache.get(cacheKey);
   if (hit) return { ...hit, cached: true, cacheRead: 0 };
   const imageRule = allowImage ? 'If a rendered board is necessary, reply {"want_board":true} with no move.' : "Make the decision using the supplied position.";
@@ -1121,11 +1169,12 @@ async function externalMoveAction(position, side, signal) {
   }
   throw new Error("The model did not return one legal action");
 }
-function noteExternalMove(action, say, plan = [], seat = extSeat) {
+function noteExternalMove(action, say, plan = [], seat = extSeat, info = {}) {
   if (!say && !plan.length) return;
   const suffix = plan.length ? ` Plan: ${plan.join(" → ")}` : "";
   const arr = chatHistories[seat];
-  arr.push({ role: "assistant", content: `${action}: ${say}${suffix}`, seat });
+  arr.push({ role: "assistant", content: `${action}: ${say}${suffix}`, seat,
+    cached: !!info.cached, cacheRead: info.cacheRead || 0 });
   if (arr.length > 24) arr.splice(0, arr.length - 24);
   if (seat === extSeat) renderChat();
 }
@@ -1135,8 +1184,8 @@ function renderChat() {
     const e = document.createElement("div");
     e.className = "chat-empty";
     e.textContent = extConfigured()
-      ? "Chat with the configured model. The current board is attached to each question."
-      : "Configure an endpoint above to start chatting.";
+      ? "Ask the model about this board."
+      : "Set up an endpoint to chat.";
     ui.chatLog.appendChild(e);
     return;
   }
@@ -1162,6 +1211,7 @@ async function sendChat() {
   chatBusy = true;
   const controller = chatController = new AbortController();
   const seat = extSeat;
+  chatRequestSeat = seat;
   const conversation = chatHistories[seat];
   conversation.push({ role: "user", content: text });
   ui.chatInput.value = "";
@@ -1181,7 +1231,7 @@ async function sendChat() {
   } catch (err) {
     if (!controller.signal.aborted) conversation.push({ role: "assistant", failed: true, content: "Request failed: " + err.message });
   } finally {
-    if (chatController === controller) { chatController = null; chatBusy = false; }
+    if (chatController === controller) { chatController = null; chatRequestSeat = null; chatBusy = false; }
     renderChat();
     renderExt();
   }
@@ -1197,12 +1247,7 @@ async function chooseFor(side, position, epoch) {
     return action;
   }
   if (cfg.kind === "ext") {
-    if (!extProfile(seat).allowMoveRequests) {
-      const { action, stats } = await searchAlphaBeta(position, { depth: 6, ms: 1200 });
-      if (epoch !== aiEpoch) return null;
-      lastInfo = `External move requests off · local Alpha-beta · depth ${stats.depth} · ${stats.ms} ms`;
-      return action;
-    }
+    if (!extConfigured(seat) || !extProfile(seat).allowMoveRequests) return null;
     const controller = new AbortController();
     extMoveController = controller;
     let r;
@@ -1211,7 +1256,7 @@ async function chooseFor(side, position, epoch) {
     if (epoch !== aiEpoch) return null;
     lastExtSay = r.say || "";
     lastInfo = `external ${extProfile(seat).model}${r.cached ? " · result cache" : ""}${r.cacheRead ? ` · prompt cache ${r.cacheRead} tok` : ""}${r.usedImage ? " · vision" : ""}`;
-    noteExternalMove(actionStr(r.action), r.say, r.plan, seat);
+    noteExternalMove(actionStr(r.action), r.say, r.plan, seat, r);
     return r.action;
   }
   if (cfg.kind === "sigma") {
@@ -1312,29 +1357,26 @@ async function aiTurn() {
   const side = position.turn;
   const seat = engineSeat(side);
   const kind = parseEngine(engineCfg[seat]).kind;
-  if (kind === "ext" && !extConfigured(seat)) {
-    if (mode === "ai_ai") running = false;
-    busy = false;
-    status("External AI is not configured",
-      `${side === 0 ? "Red" : "Blue"} seat needs a Base URL and model in the endpoint card`);
-    updateButtons();
-    return;
-  }
+  const block = externalTurnBlock();
+  if (block) { pauseExternalTurn(block); return; }
   busy = true;
   updatePlayers();
   updateButtons();
-  const extMovesOff = kind === "ext" && !extProfile(seat).allowMoveRequests;
   status(`${engineName(side)} is thinking`, (kind === "sigma" || kind === "guided" || kind === "champion")
     ? ((kind === "champion" ? championPromise : sigmaNet) ? "Searching moves on this device" : "Loading the local AI model for the first move")
-    : kind === "ext" ? extMovesOff ? "External calls are off · using local Alpha-beta" : "requesting a move from your configured endpoint"
+    : kind === "ext" ? "requesting a move from your configured endpoint"
     : "alpha-beta search");
   await new Promise((r) => setTimeout(r, 35));
   if (epoch !== aiEpoch) return;
+  const delayedBlock = externalTurnBlock();
+  if (delayedBlock) { pauseExternalTurn(delayedBlock); return; }
   let a = null;
   try {
     a = await chooseFor(side, position, epoch);
   } catch (err) {
     if (epoch !== aiEpoch) return;
+    const failedBlock = externalTurnBlock();
+    if (failedBlock) { pauseExternalTurn(failedBlock); return; }
     console.error(err);
     if (kind === "ext") {
       status("External AI unavailable", "using local alpha-beta for this move; check the endpoint card");
@@ -1351,6 +1393,8 @@ async function aiTurn() {
     }
   }
   if (epoch !== aiEpoch) return;
+  const finalBlock = externalTurnBlock();
+  if (finalBlock) { pauseExternalTurn(finalBlock); return; }
   if (!actionsFor(position).includes(a)) {
     a = position.moves()[0];
     if (a === undefined) { busy = false; render(); return; }
@@ -1910,6 +1954,7 @@ ui.btnPlay.addEventListener("click", () => {
 });
 ui.btnUndo.addEventListener("click", undo);
 ui.btnFlip.addEventListener("click", flipSides);
+ui.btnExternalSetup.addEventListener("click", () => showExternalSetup());
 ui.btnResult.addEventListener("click", openResult);
 ui.btnResultClose.addEventListener("click", closeResult);
 ui.btnResultBoard.addEventListener("click", closeResult);
@@ -1962,6 +2007,7 @@ for (const [side, select] of [ui.engineRed, ui.engineBlue].entries()) {
     updatePlayers();
     updateEngineRows();
     updateExtVisibility();
+    updateButtons();
     if (state.terminal) { updateResult(); return; }
     const colour = side === 0 ? "Red" : "Blue";
     status(`${colour} engine: ${engineName(side)}`, parseEngine(engineCfg[seat]).kind === "ext" && !extConfigured(seat)

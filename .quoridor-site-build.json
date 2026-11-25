@@ -8,18 +8,18 @@
     },
     {
       "path": "index.html",
-      "bytes": 14736,
-      "sha256": "8f994cb06a37df26818ec9f7e2f3131b2fcf92d68cc61f07064f8a8e6a4d8f53"
+      "bytes": 15620,
+      "sha256": "9fc271b0578444b907c4ec377f93ac29060f8e59a8934ff1a11d10b124061bbb"
     },
     {
       "path": "board.css",
-      "bytes": 21919,
-      "sha256": "ffc92a86d5816940f30284ee8fee10f6c4a5fa9dd15711443ffa73fdf2c10fff"
+      "bytes": 22173,
+      "sha256": "127778b7bdf2a4d610da4c699e696b4f42e0ab968da64d1fcea8be96819b6bee"
     },
     {
       "path": "app.js",
-      "bytes": 80252,
-      "sha256": "d5e8a7a90a08e6f2d581efedd5afaca12fe8d0d63484bd7944882c8caebabdef"
+      "bytes": 81895,
+      "sha256": "f8bcd3ea5a5afa127bcc48fb37e0325034685df7593fd3421996ff8517bd4ac4"
     },
     {
       "path": "rules.js",
@@ -73,8 +73,8 @@
     },
     {
       "path": "privacy.html",
-      "bytes": 6924,
-      "sha256": "774515d1543301c09f1f2d822199cf72d0031d5b1ebadbee6624217c2fb7511a"
+      "bytes": 7037,
+      "sha256": "56baa8e7f22db0f06ec05dadaaf6df2d968e29b2ed6f9ffa0950e7b1aa3737e4"
     },
     {
       "path": "terms.html",

@@ -45,6 +45,7 @@
       <button class="btn" id="btnPlay" hidden>Play</button>
       <button class="btn" id="btnUndo">Undo</button>
       <button class="btn" id="btnFlip">Flip sides</button>
+      <button class="btn" id="btnExternalSetup" hidden>External AI settings</button>
       <button class="btn" id="btnResult" hidden>View result</button>
     </div>
 
@@ -129,7 +130,8 @@
 
       <section class="card ext-card hide">
         <div class="section-head">EXTERNAL AI <button class="link" id="btnExtToggle">settings</button></div>
-        <div class="ext-summary" id="extSummary">Not configured. Use any OpenAI-compatible endpoint.</div>
+        <div class="ext-summary" id="extSummary">Not configured</div>
+        <p class="note ext-cost">Test, chat and AI turns may incur provider charges.</p>
         <div class="ext-seat-row hide" id="extSeatRow">
           <label for="extSeat">CONFIGURE &amp; CHAT WITH</label>
           <select id="extSeat"><option value="0">RED</option><option value="1">BLUE</option></select>
@@ -142,21 +144,28 @@
             <option value="anthropic">Anthropic Messages</option>
           </select></div>
           <div class="field"><label for="extBase">BASE URL OR FULL ENDPOINT</label><input id="extBase" spellcheck="false" placeholder="https://api.example.com/v1"></div>
-          <label class="check" style="margin-top:0"><input type="checkbox" id="extFullEndpoint"> Use URL exactly as entered (custom endpoint)</label>
-          <div class="field"><label for="extKey">API KEY (OPTIONAL FOR LOCAL ENDPOINTS)</label><input id="extKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-..."></div>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extFullEndpoint" aria-describedby="extEndpointHelp"> Custom endpoint (use URL as entered)</label>
+          <div class="field"><label for="extKey">API KEY</label><input id="extKey" type="password" autocomplete="off" spellcheck="false" placeholder="API key, if required" aria-describedby="extKeyHelp"></div>
           <div class="field"><label for="extModel">MODEL</label><input id="extModel" spellcheck="false" placeholder="model-name"></div>
-          <label class="check" style="margin-top:0"><input type="checkbox" id="extRemember"> Remember key on this device (unencrypted browser storage)</label>
-          <label class="check" style="margin-top:0"><input type="checkbox" id="extAllowMoves"> Allow live external API calls for AI turns (your provider may charge)</label>
-          <label class="check" style="margin-top:0"><input type="checkbox" id="extImage"> Allow this engine to request a board image</label>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extRemember"> Remember key (stored unencrypted)</label>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extAllowMoves" aria-describedby="extMovesHelp"> Allow automatic AI move requests</label>
+          <label class="check" style="margin-top:0"><input type="checkbox" id="extImage"> Allow board images</label>
           <div class="btn-grid">
             <button class="btn" id="btnExtSave">Save &amp; apply</button>
-            <button class="btn" id="btnExtTest">Test · live request</button>
+            <button class="btn" id="btnExtTest">Test</button>
           </div>
           <button class="link" id="btnExtForget" type="button">Forget this API key</button>
-        <div class="note" id="extNote">Test sends a live request. Automatic external move calls are off by default; “Save &amp; apply” may start one only if you opted in above and this seat is due to move. Your key goes only to the endpoint you enter. AI chat sends your messages and board position. The provider may charge and retain data. <a href="./privacy.html#external-ai">Read before connecting</a></div>
+          <div class="note" id="extNote" role="status" aria-live="polite"></div>
+          <details class="ext-help">
+            <summary>Connection help &amp; privacy</summary>
+            <p id="extEndpointHelp">Base URLs such as https://api.example.com/v1 work with Custom endpoint unchecked. Standard full endpoint paths are detected automatically. Check the option only to use a custom URL without adding a path.</p>
+            <p id="extKeyHelp">Leave the key blank only if your endpoint requires no key. A local model server can use an address such as http://localhost:1234/v1 and its loaded model ID. It must allow this site's origin through CORS; your browser may also ask for permission to connect. Localhost refers to the device running this browser.</p>
+            <p id="extMovesHelp">Without move permission, this AI seat waits. Enable the option and Save &amp; apply to continue; in AI vs AI, also press Play. Test and chat are separate requests.</p>
+            <p>Requests go directly to your endpoint with your key and board context. Chat adds your question and recent conversation. Identical move requests may reuse a result in this tab; provider prompt caching depends on your provider. <a href="./privacy.html#external-ai">Privacy details</a></p>
+          </details>
         </div>
         <div class="section-head" style="margin-top:14px">AI CHAT <span class="value" id="chatStatus">offline</span></div>
-          <div class="chatlog" id="chatLog"><div class="chat-empty">Chat with the configured external model. Sending each message makes a live request and may incur provider charges. Board context is attached.</div></div>
+          <div class="chatlog" id="chatLog"><div class="chat-empty">Ask the model about this board.</div></div>
         <div class="chat-row">
           <input id="chatInput" maxlength="500" placeholder="Type a message..." aria-label="chat message">
           <button class="btn" id="btnChatSend" aria-label="Send message to your configured AI provider (live request)">Send</button>
