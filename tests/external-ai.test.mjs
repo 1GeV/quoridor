@@ -59,9 +59,11 @@ test("provider errors and failed fetches cannot echo keys into the displayed err
   }
 });
 
-test("browser network failures explain CORS without blaming a valid key or model", async () => {
+test("browser network failures distinguish CORS checks from interrupted replies", async () => {
   await assert.rejects(completeExternal(messages, { fetchImpl: async () => { throw new TypeError("Failed to fetch"); } }, profile),
-    /CORS.*preflight.*does not by itself mean the key or model is wrong/);
+    /could not connect.*CORS\/preflight/);
+  const broken = new Response(new ReadableStream({ start(controller) { controller.error(new TypeError("Response interrupted")); } }));
+  await assert.rejects(completeExternal(messages, { fetchImpl: async () => broken }, profile), /Could not read the endpoint response/);
 });
 
 test("successful provider replies redact an exact echoed API key before display or move parsing", async () => {
@@ -96,7 +98,7 @@ test("endpoint format selection preserves full paths and never routes to a secon
   }
   assert.equal(extEndpoint({ ...profile, baseUrl: "https://example.invalid/custom/message", protocol: "anthropic" }).url, "https://example.invalid/custom/message");
   assert.equal(extEndpoint({ ...profile, baseUrl: "https://example.invalid/custom/response", protocol: "responses" }).url, "https://example.invalid/custom/response");
-  assert.equal(extEndpoint({ ...profile, baseUrl: "https://example.invalid/gateway/invoke", protocol: "responses", fullEndpoint: true }).url, "https://example.invalid/gateway/invoke");
+  assert.equal(extEndpoint({ ...profile, baseUrl: "https://example.invalid/gateway/invoke/", protocol: "responses", fullEndpoint: true }).url, "https://example.invalid/gateway/invoke/");
   assert.throws(() => extEndpoint({ ...profile, protocol: "unknown" }), /supported API protocol/);
   assert.throws(() => extEndpoint({ ...profile, baseUrl: "https://example.invalid/v1/messages", protocol: "responses" }), /disagree/);
 });

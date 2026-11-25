@@ -24,8 +24,9 @@ export function extEndpoint(profile) {
   const protocol = requested === "auto" ? detected || (url.hostname === "api.anthropic.com" ? "anthropic" : "chat") : requested;
   if (detected && requested !== "auto" && protocol !== detected) throw new Error("The endpoint path and API protocol disagree");
   const suffix = { chat: "/chat/completions", responses: "/responses", anthropic: "/messages" }[protocol];
-  url.pathname = detected || profile.fullEndpoint ? pathname
-    : pathname + (/\/v\d+(?:beta)?$/i.test(pathname) ? "" : "/v1") + suffix;
+  if (!profile.fullEndpoint) {
+    url.pathname = detected ? pathname : pathname + (/\/v\d+(?:beta)?$/i.test(pathname) ? "" : "/v1") + suffix;
+  }
   return { url: url.href, protocol, anthropic: protocol === "anthropic" };
 }
 
@@ -199,6 +200,7 @@ export async function completeExternal(messages, {
     headers["anthropic-version"] = "2023-06-01";
     headers["anthropic-dangerous-direct-browser-access"] = "true";
   }
+  let stage = "prepare";
   try {
     signal?.throwIfAborted();
     const payload = anthropic ? anthropicBody(messages, profile, temperature, maxTokens)
@@ -207,10 +209,13 @@ export async function completeExternal(messages, {
         ...(EFFORT_LEVELS.includes(profile.effort)
           ? { reasoning_effort: profile.effort, max_completion_tokens: reasoningTokenLimit(maxTokens, profile.effort) }
           : { temperature, max_tokens: maxTokens }) };
+    const body = JSON.stringify(payload);
+    stage = "connect";
     const response = await fetchImpl(url, {
       method: "POST", headers, signal, credentials: "omit", redirect: "error",
-      referrerPolicy: "no-referrer", body: JSON.stringify(payload),
+      referrerPolicy: "no-referrer", body,
     });
+    stage = "read";
     if (!response.ok) {
       await response.body?.cancel().catch(() => {});
       // An arbitrary provider can echo the submitted API key in its error body.
@@ -237,6 +242,10 @@ export async function completeExternal(messages, {
   } catch (error) {
     if (signal?.aborted) throw new DOMException("Request cancelled", "AbortError");
     if (error instanceof EndpointError) throw error;
-    throw new EndpointError("The browser could not reach the endpoint. This may be CORS/preflight, DNS/TLS, network or endpoint availability; it does not by itself mean the key or model is wrong.");
+    if (stage === "connect") {
+      throw new EndpointError("The browser could not connect. Check the endpoint URL, redirects and CORS/preflight in the browser Network panel.");
+    }
+    if (stage === "read") throw new EndpointError("Could not read the endpoint response. The connection may have been interrupted.");
+    throw new EndpointError("Could not prepare the request to the endpoint.");
   }
 }
