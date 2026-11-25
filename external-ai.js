@@ -36,10 +36,10 @@ function reasoningTokenLimit(maxTokens, effort) {
 
 export function responsesBody(messages, profile, maxTokens) {
   const hasEffort = EFFORT_LEVELS.includes(profile.effort);
-  const instructions = messages.filter((m) => m.role === "system" || m.role === "developer")
-    .map((m) => m.content).filter(Boolean).join("\n\n");
-  const input = messages.filter((m) => m.role !== "system" && m.role !== "developer").map((m) => {
-    const role = m.role === "assistant" ? "assistant" : "user";
+  // Keep reusable rules at the start of input. Top-level instructions can
+  // sit beyond cacheable prefix boundaries on newer Responses models.
+  const input = messages.map((m) => {
+    const role = m.role === "system" ? "developer" : m.role;
     if (typeof m.content === "string") return { role, content: m.content };
     const content = (Array.isArray(m.content) ? m.content : []).map((part) => {
       if (role === "user" && part?.type === "image_url") return { type: "input_image", image_url: part.image_url?.url, detail: "auto" };
@@ -49,7 +49,7 @@ export function responsesBody(messages, profile, maxTokens) {
   });
   // Keep the selected conversation in browser memory; do not request a stored provider conversation.
   // Temperature is omitted because some reasoning models reject it.
-  return { model: profile.model, ...(instructions ? { instructions } : {}), input,
+  return { model: profile.model, input,
     max_output_tokens: hasEffort ? reasoningTokenLimit(maxTokens, profile.effort) : maxTokens, stream: false, store: false,
     ...(hasEffort ? { reasoning: { effort: profile.effort } } : {}) };
 }

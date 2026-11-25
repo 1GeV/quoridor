@@ -115,12 +115,13 @@ test("Responses preserves instructions, history, images and cache counts without
     assert.equal(options.headers.Authorization, `Bearer ${profile.apiKey}`);
     assert.equal(options.headers["x-api-key"], undefined);
     const body = JSON.parse(options.body);
-    assert.equal(body.instructions, "Stable rules");
+    assert.equal(body.instructions, undefined);
     assert.equal(body.store, false);
     assert.equal(body.stream, false);
     assert.equal(body.max_output_tokens, 512);
     for (const field of ["messages", "previous_response_id", "conversation", "max_tokens", "temperature"]) assert.equal(field in body, false);
     assert.deepEqual(body.input, [
+      { role: "developer", content: "Stable rules" },
       { role: "user", content: "Earlier question" }, { role: "assistant", content: "Earlier answer" },
       { role: "user", content: [{ type: "input_text", text: "Current board" }, { type: "input_image", image_url: "data:image/jpeg;base64,YQ==", detail: "auto" }] },
     ]);

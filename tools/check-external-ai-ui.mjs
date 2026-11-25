@@ -36,7 +36,7 @@ const api = http.createServer(async (req, res) => {
   let raw = ""; for await (const part of req) raw += part;
   const body = JSON.parse(raw), messages = body.messages || body.input || [];
   const turns = messages.map(({ role, content }) => ({ role, content: typeof content === "string" ? content : content[0]?.text }));
-  const system = body.instructions ?? body.system?.[0]?.text ?? turns.find((message) => message.role === "system")?.content;
+  const system = body.instructions ?? body.system?.[0]?.text ?? turns.find((message) => ["system", "developer"].includes(message.role))?.content;
   const last = turns.at(-1)?.content;
   const board = last?.startsWith("{") ? JSON.parse(last) : null;
   const kind = board?.task ?? "test";
@@ -239,6 +239,8 @@ try {
       for (const call of [question, move, discussion]) {
         assert.equal(call.body.store, false);
         assert.equal(call.body.previous_response_id, undefined);
+        assert.deepEqual(call.body.input[0], { role: "developer", content: question.system });
+        assert.equal(call.body.instructions, undefined);
       }
     } else {
       for (const call of [question, move, discussion]) {
