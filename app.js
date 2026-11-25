@@ -1885,13 +1885,22 @@ let roomTimer = null;
 
 function waitOpen(p) {
   if (p.open) return Promise.resolve();
-  return withTimeout(new Promise((resolve, reject) => {
-    const cleanup = () => { p.off("open", opened); p.off("error", failed); };
-    const opened = () => { cleanup(); resolve(); };
-    const failed = (error) => { cleanup(); reject(error); };
+  return new Promise((resolve, reject) => {
+    const finish = (error) => {
+      clearTimeout(timer);
+      p.off("open", opened);
+      p.off("error", finish);
+      p.off("close", closed);
+      if (error) reject(error);
+      else resolve();
+    };
+    const opened = () => finish();
+    const closed = () => finish(new Error("Room connection closed before opening"));
+    const timer = setTimeout(() => finish(new Error("Room server did not respond")), ROOM_TIMEOUT);
     p.on("open", opened);
-    p.on("error", failed);
-  }), ROOM_TIMEOUT, "Room server did not respond");
+    p.on("error", finish);
+    p.on("close", closed);
+  });
 }
 function watchPeer(p) {
   p.on("error", (error) => {
