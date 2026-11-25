@@ -336,6 +336,11 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ext-seat-row label { color: var(--muted); font-size: 13px; letter-spacing: .08em; flex: 0 0 auto; }
 .ext-seat-row select { padding: 8px 10px; font-size: 15px; }
 .ext-form { display: flex; flex-direction: column; gap: 10px; margin-top: 11px; }
+.ext-cost { margin: 6px 0 0; font-size: 13px; }
+.ext-help { color: var(--muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.ext-help summary { cursor: pointer; }
+.ext-help p { margin: 8px 0 0; }
+#extNote:empty { display: none; }
 .ext-form.hide { display: none; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .field label { color: var(--muted); font-size: 13px; letter-spacing: .08em; }

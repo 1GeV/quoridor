@@ -107,8 +107,10 @@ working.
 ## External AI cost control and privacy
 
 Entering an endpoint does not enable automatic API calls for AI turns. The
-per-seat **Allow live external API calls for AI turns** option is unchecked by
-default; without that explicit opt-in, the seat uses local Alpha-beta. The Test
+per-seat **Allow automatic AI move requests** option is unchecked by
+default; without that explicit opt-in, the seat waits and prompts you to enable
+permission in External AI settings. Enable the option and **Save & apply** to
+continue; paused AI-vs-AI games also require pressing **Play**. The Test
 button and each AI-chat message send a live request and may incur provider
 charges. See [privacy.html](./privacy.html) for the request contents, local
 storage and third-party connections.
@@ -169,11 +171,19 @@ their request format. Responses requests use `store: false`; provider-side
 logging and caching remain subject to that provider's policy. Browser requests
 need CORS at the endpoint. The **Test** button sends a live request asking for
 `OK`. **Save & apply** saves the configuration. Automatic move requests remain
-disabled until explicitly enabled for that profile. The key is sent only to the
+disabled until explicitly enabled and saved for that profile; the seat waits
+while permission is off. The key is sent only to the
 configured endpoint in an authorization header. By default the browser keeps it
 in session storage. The remember option also stores it unencrypted on this
 device. “Forget this API key” removes it from this app's browser storage; revoke
 it separately at the provider.
+
+The compact settings form keeps connection examples and data details under
+**Connection help & privacy**. A local server can use a loopback URL such as
+`http://localhost:1234/v1`; it must expose a supported API format, allow this
+site's origin through CORS, and satisfy any browser local-network permission.
+Leave the key blank only when the server does not require authentication.
+`localhost` refers to the device running the browser.
 
 Each move sends the rules, the two pawn coordinates, every placed wall, remaining
 wall reserves, the side to move, move count, result when available, up to 12 recent
@@ -189,11 +199,22 @@ legal numeric action ID in `move`. `say` and `plan` are displayed in chat.
 Plans never place moves. The game checks the reply against the legal-action list
 and uses local Alpha-beta for the turn if the endpoint fails or sends an invalid
 reply. Valid decisions for identical context can be reused in the current tab.
+The result cache is separate for each logical seat and board colour, and matches
+the endpoint, API format, model, image permission and full submitted position
+context. Saving settings or forgetting a key clears it. Changing the endpoint,
+model, format or key also cancels that profile's pending chat and clears its
+conversation. The page labels reused moves and provider-reported cached tokens;
+provider prompt-cache availability and pricing are not guaranteed by this app.
 If board images are enabled for the seat, `{"want_board":true}` requests a single
 512×512 JPEG of the board for a follow-up call.
 
 Chat sends the current position, the question and up to eight previous chat
 messages for that seat. Chat replies are displayed as text and do not play moves.
+
+After building, `node tools/check-external-ai-ui.mjs` checks consent, all three
+formats, local CORS, caching, cancellation and mobile layout with local mock
+responses. It requires Chromium remote debugging at `http://127.0.0.1:9225`
+(override with `QUORIDOR_CDP_URL`) and uses an isolated browser context.
 
 ## Agent interface
 
