@@ -6,6 +6,7 @@ import { searchGuided } from "./guided.js";
 import { ClaustrophobiaNet } from "./claustrophobia.js";
 import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS } from "./external-ai.js";
 import { positionKey } from "./detour.js";
+import { clearAIAssets, subscribeAIAssets } from "./ai-assets.js";
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -25,6 +26,10 @@ const ui = {
   status: $("status"),
   hint: $("hint"),
   boardStatus: $("boardStatus"),
+  aiLoading: $("aiLoading"),
+  aiLoadingLabel: $("aiLoadingLabel"),
+  aiLoadingDetail: $("aiLoadingDetail"),
+  aiLoadingProgress: $("aiLoadingProgress"),
   resultLabel: $("resultLabel"),
   resultDialog: $("resultDialog"),
   resultEyebrow: $("resultEyebrow"),
@@ -294,8 +299,11 @@ let busy = false;
 let aiEpoch = 0;
 let aiTimer = null;
 let lastInfo = "";
+let lastAiMetrics = null;
 let lastExtSay = "";
 let hover = null;
+let wallDrag = null;
+let suppressWallClick = null;
 let geo = null;
 let viewFlip = false;
 let running = false;
@@ -313,6 +321,8 @@ let replayTimer = null;
 let sigmaNet = null;
 let sigmaPromise = null;
 let championPromise = null;
+let championReady = false;
+let prewarmTimer = null;
 let sigmaQueue = Promise.resolve();
 let sigmaBatch = false;
 let sigmaAgents = { 0: null, 1: null };
@@ -406,7 +416,7 @@ function draw() {
 
   if (hover && canPlay() && !busy) {
     const ok = legalHover();
-    ctx.globalAlpha = ok ? 1 : .3;
+    ctx.globalAlpha = ok ? 1 : wallDrag?.active ? .85 : .3;
     if (hover.kind === "cell") {
       const x = margin + hover.c * cell, y = margin + hover.r * cell;
       roundRect(x + 2.5, y + 2.5, cell - 5, cell - 5, 6, null);
@@ -414,7 +424,7 @@ function draw() {
       ctx.lineWidth = 1.5;
       ctx.stroke();
     } else {
-      drawWall(hover.kind, hover.r, hover.c, COL.ghost);
+      drawWall(hover.kind, hover.r, hover.c, !ok && wallDrag?.active ? COL.red : COL.ghost);
     }
     ctx.globalAlpha = 1;
   }
@@ -530,17 +540,18 @@ function darken(hex, k) {
 }
 
 // ---------------------------------------------------------------- picking
-function pick(evt) {
+function pick(evt, tool = boardTool) {
+  if (!geo) return null;
   const rect = cvs.getBoundingClientRect();
   const x = evt.clientX - rect.left, y = evt.clientY - rect.top;
   const gx = (x - geo.margin) / geo.cell, gy = (y - geo.margin) / geo.cell;
   if (gx < -.45 || gy < -.45 || gx > 9.45 || gy > 9.45) return null;
   const dx = Math.abs(gx - Math.round(gx));
   const dy = Math.abs(gy - Math.round(gy));
-  if (boardTool !== "auto") {
+  if (tool !== "auto") {
     if (gx < 0 || gy < 0 || gx > 9 || gy > 9) return null;
     const anchor = (n) => clamp(Math.round(n) - 1, 0, 7);
-    return { kind: boardTool, r: anchor(gy), c: anchor(gx) };
+    return { kind: tool, r: anchor(gy), c: anchor(gx) };
   }
   const TH = .13;
   const kr = Math.round(gy), kc = Math.round(gx);
@@ -777,6 +788,7 @@ function renderSaved() {
   }
 }
 function render() {
+  cancelWallDrag();
   $("speedCard").hidden = mode !== "ai_ai";
   updatePlayers();
   updateModeButtons();
@@ -784,11 +796,40 @@ function render() {
   updateExtVisibility();
   updateButtons();
   updateResult();
+  updateAILoading();
   renderLog();
   draw();
 }
 
 // ---------------------------------------------------------------- sigma
+let aiAssetsProgress = [], loadingPaint = null;
+function updateAILoading() {
+  const engines = mode === "ai" ? [parseEngine(engineCfg[opponentSeat]).kind]
+    : mode === "ai_ai" ? Object.values(engineCfg).map((config) => parseEngine(config).kind) : [];
+  const loading = engines.includes("champion") && championPromise && !championReady
+    || engines.some((kind) => kind === "sigma" || kind === "guided") && sigmaPromise;
+  ui.aiLoading.hidden = !loading;
+  if (!loading) return;
+  const download = aiAssetsProgress.find((asset) => asset.phase === "download");
+  let label = "Initializing AI on this device", detail = "First use may take longer";
+  ui.aiLoadingProgress.removeAttribute("value");
+  if (download) {
+    label = download.url.includes(".wasm") ? "Downloading AI runtime" : "Downloading AI model";
+    const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
+    detail = download.total ? `${mb(download.loaded)} / ${mb(download.total)} MB` : `${mb(download.loaded)} MB received`;
+    if (download.total && download.loaded <= download.total) {
+      ui.aiLoadingProgress.max = download.total;
+      ui.aiLoadingProgress.value = download.loaded;
+    }
+  } else if (aiAssetsProgress.some((asset) => asset.phase === "verify")) label = "Checking AI files";
+  else if (aiAssetsProgress.length) label = "Reading saved AI files";
+  ui.aiLoadingLabel.textContent = label;
+  ui.aiLoadingDetail.textContent = detail;
+}
+subscribeAIAssets((assets) => {
+  aiAssetsProgress = assets;
+  if (loadingPaint === null) loadingPaint = requestAnimationFrame(() => { loadingPaint = null; updateAILoading(); });
+});
 function loadRuntime() {
   if (globalThis.ort) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -799,28 +840,19 @@ function loadRuntime() {
     document.head.append(script);
   });
 }
-function withTimeout(work, ms, message = "Model loading timed out") {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
-}
 function ensureSigma() {
   if (sigmaNet) return Promise.resolve(sigmaNet);
   if (sigmaPromise) return sigmaPromise;
   sigmaPromise = (async () => {
-    await withTimeout(loadRuntime(), 10_000);
+    await loadRuntime();
     if (navigator.gpu) {
       try {
-        const net = await withTimeout(SigmaNet.load("./models/sigma_9x9_batch.onnx", null,
-          { executionProviders: ["webgpu"] }), 15_000);
+        const net = await SigmaNet.load("./models/sigma_9x9_batch.onnx", null,
+          { executionProviders: ["webgpu"] });
         try {
           const opening = State.new();
           const moved = opening.doAction(67);
-          const [single, batch] = await withTimeout((async () => [
-            await net.raw(moved), await net.rawBatch([opening, moved]),
-          ])(), 5_000);
+          const single = await net.raw(moved), batch = await net.rawBatch([opening, moved]);
           if (!(Math.abs(single[1] - batch[1].value) < .01) ||
               single[0].some((value, i) => !(Math.abs(value - batch[1].logits[i]) < .01))) {
             throw new Error("WebGPU batch output differed from single-position inference");
@@ -836,19 +868,33 @@ function ensureSigma() {
       }
     }
     sigmaBatch = false;
-    return sigmaNet = await withTimeout(SigmaNet.load("./models/sigma_9x9.onnx"), 15_000);
-  })().finally(() => { sigmaPromise = null; });
+    return sigmaNet = await SigmaNet.load("./models/sigma_9x9.onnx");
+  })().finally(() => { sigmaPromise = null; updateAILoading(); });
+  updateAILoading();
   return sigmaPromise;
 }
 function ensureChampion() {
   championPromise ??= (async () => {
-    await withTimeout(loadRuntime(), 10_000);
-    return withTimeout(ClaustrophobiaNet.load("./models/claustrophobia_v1_3_1.onnx"), 30_000);
+    await loadRuntime();
+    const net = await ClaustrophobiaNet.load("./models/claustrophobia_v1_3_1.onnx");
+    championReady = true;
+    return net;
   })().catch((error) => {
     championPromise = null;
     throw error;
-  });
+  }).finally(updateAILoading);
+  updateAILoading();
   return championPromise;
+}
+function prewarmEngine() {
+  clearTimeout(prewarmTimer);
+  if (mode !== "ai" || state.terminal || state.turn !== humanSide) return;
+  const kind = parseEngine(engineCfg[opponentSeat]).kind;
+  if (!["champion", "guided", "sigma"].includes(kind)) return;
+  prewarmTimer = setTimeout(() => {
+    if (mode !== "ai" || parseEngine(engineCfg[opponentSeat]).kind !== kind) return;
+    void (kind === "champion" ? ensureChampion() : ensureSigma()).catch(() => {});
+  }, 200);
 }
 function sigmaAgentFor(side, cfg) {
   const sims = cfg.sims;
@@ -970,7 +1016,7 @@ function forgetExternalKey() {
   const block = externalTurnBlock();
   if (block) pauseExternalTurn(block);
 }
-function clearLocalData() {
+async function clearLocalData() {
   if (!window.confirm("Delete this app's saved games, preferences and API settings on this device? This cannot delete data already sent to third parties.")) return;
   cancelAi();
   cancelChat();
@@ -981,6 +1027,7 @@ function clearLocalData() {
   for (let seat = 0; seat < 2; seat++) {
     try { sessionStorage.removeItem(EXT_SESSION_PREFIX + seat); } catch {}
   }
+  await clearAIAssets();
   location.reload();
 }
 function externalColour() {
@@ -1289,12 +1336,22 @@ async function chooseFor(side, position, epoch) {
       loadNet: champion ? ensureChampion : ensureSigma,
       search: (options) => searchAlphaBeta(position, { depth: cfg.depth, policyWeight: champion ? 220 : 170, ...options }),
       cancelled: () => epoch !== aiEpoch,
-      onModelError: (error) => console.warn("Guided policy unavailable; using Detour", error),
+      onModelError: (error) => {
+        lastAiMetrics = { ...lastAiMetrics, modelError: error.message };
+        console.warn("Guided policy unavailable; using Detour", error);
+      },
+      onStage: (stage) => {
+        if (epoch !== aiEpoch) return;
+        const ready = champion ? championReady : !!sigmaNet;
+        status(`${engineName(side)} is thinking`, stage === "loading" && !ready ? "Loading AI files · first use may take longer"
+          : stage === "inference" ? "Evaluating this position" : "Searching moves on this device");
+      },
     }));
     sigmaQueue = search.catch(() => {});
     const result = await search;
     if (!result || epoch !== aiEpoch) return null;
     const label = result.guided ? searchName(cfg.kind) : "Alpha-beta";
+    lastAiMetrics = { ...lastAiMetrics, loadMs: result.loadMs, inferenceMs: result.inferenceMs, searchMs: result.stats.ms, guided: result.guided };
     lastInfo = result.stats.endgame ? `Solved endgame · ${result.ms} ms` : `${label} · depth ${result.stats.depth} · ${result.ms} ms`;
     return result.action;
   }
@@ -1314,8 +1371,8 @@ function canPlay() {
 }
 function turnName() { return state.turn === 0 ? "Red" : "Blue"; }
 function boardHint() {
-  return boardTool === "auto" ? "Select a highlighted square or a gap to place a wall."
-    : "Select the intersection at the centre of the wall.";
+  return boardTool === "auto" ? "Tap a highlighted square, or drag a wall onto the board."
+    : "Drag a wall onto the board, or tap the intersection at its centre.";
 }
 function humanTurn() {
   if (!state || state.terminal) return;
@@ -1328,6 +1385,7 @@ function humanTurn() {
   }
   if (canPlay()) status(`Your move (${turnName()})`,
     boardHint() + (lastInfo ? `   ·   ${lastInfo}` : ""));
+  prewarmEngine();
 }
 function clearAiTimer() {
   if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
@@ -1357,13 +1415,15 @@ async function aiTurn() {
   const side = position.turn;
   const seat = engineSeat(side);
   const kind = parseEngine(engineCfg[seat]).kind;
+  const turnStarted = performance.now();
+  lastAiMetrics = null;
   const block = externalTurnBlock();
   if (block) { pauseExternalTurn(block); return; }
   busy = true;
   updatePlayers();
   updateButtons();
   status(`${engineName(side)} is thinking`, (kind === "sigma" || kind === "guided" || kind === "champion")
-    ? ((kind === "champion" ? championPromise : sigmaNet) ? "Searching moves on this device" : "Loading the local AI model for the first move")
+    ? ((kind === "champion" ? championReady : sigmaNet) ? "Searching moves on this device" : "Loading AI files · first use may take longer")
     : kind === "ext" ? "requesting a move from your configured endpoint"
     : "alpha-beta search");
   await new Promise((r) => setTimeout(r, 35));
@@ -1385,10 +1445,15 @@ async function aiTurn() {
       try { ({ action: a } = await searchAlphaBeta(position, { depth: 6, ms: 1200 })); }
       catch (e) { a = position.moves()[0]; }
     } else {
-      status("Engine unavailable", "switching that seat to local Alpha-beta");
+      status("Engine unavailable", "Switching that seat to local Alpha-beta");
       engineCfg[seat] = "ab:6:1200";
       updateEngineRows();
-      try { ({ action: a } = await searchAlphaBeta(position, parseEngine(engineCfg[seat]))); }
+      const fallback = parseEngine(engineCfg[seat]);
+      try {
+        const result = await searchAlphaBeta(position, fallback);
+        a = result.action;
+        lastInfo = `Alpha-beta fallback · ${result.stats.ms} ms`;
+      }
       catch (e) { a = position.moves()[0]; }
     }
   }
@@ -1400,6 +1465,9 @@ async function aiTurn() {
     if (a === undefined) { busy = false; render(); return; }
   }
   busy = false;
+  const totalMs = Math.round(performance.now() - turnStarted);
+  lastAiMetrics = { ...lastAiMetrics, engine: kind, totalMs, modelThreads: globalThis.ort?.env.wasm.numThreads || null };
+  ui.boardStatus.title = `Last AI turn: ${totalMs} ms${lastAiMetrics.inferenceMs !== undefined ? ` (model ${lastAiMetrics.inferenceMs} ms, search ${lastAiMetrics.searchMs} ms, loading ${lastAiMetrics.loadMs} ms)` : ""}`;
   const over = applyAction(a);
   if (!over) afterMove();
 }
@@ -1458,6 +1526,8 @@ function newGame({ broadcast = true } = {}) {
   hover = null;
   lastInfo = "";
   lastExtSay = "";
+  lastAiMetrics = null;
+  ui.boardStatus.title = "";
   savedLines = new Set();
   resetAgents();
   updateViewFlip();
@@ -1480,7 +1550,8 @@ function newGame({ broadcast = true } = {}) {
   }
 }
 function updateViewFlip() {
-  viewFlip = mode === "ai" && humanSide === 1 && viewBottomSetting;
+  const playingBlue = mode === "ai" ? humanSide === 1 : mode === "room" && roomRole === "guest";
+  viewFlip = playingBlue && viewBottomSetting;
   if (geo) draw();
 }
 function undoIndex() {
@@ -1791,6 +1862,7 @@ async function joinRoom() {
   resetPeer();
   roomRole = "guest";
   mySide = 1;
+  updateViewFlip();
   roomCode = code;
   status("Joining the room…", `Room ${code}`);
   roomMsg("Connecting to the host.");
@@ -1896,6 +1968,7 @@ function resetPeer() {
   peer = null;
   roomReady = false;
   roomRole = null;
+  updateViewFlip();
   channel?.close();
   p?.destroy();
   ui.roomCode.style.display = "none";
@@ -1908,6 +1981,69 @@ function randomCode() {
 }
 
 // ---------------------------------------------------------------- input wiring
+function cancelWallDrag(clickPoint = null) {
+  if (!wallDrag) return;
+  const drag = wallDrag;
+  wallDrag = null;
+  drag.button.classList.remove("dragging");
+  $("wallDragGhost").hidden = true;
+  if (drag.active) {
+    if (clickPoint) {
+      const pending = suppressWallClick = { button: drag.button, ...clickPoint };
+      setTimeout(() => { if (suppressWallClick === pending) suppressWallClick = null; }, 500);
+    }
+    hover = null;
+    if (canPlay() && !busy) ui.hint.textContent = boardHint();
+  }
+  if (drag.button.hasPointerCapture(drag.pointerId)) drag.button.releasePointerCapture(drag.pointerId);
+}
+function updateWallDrag(event) {
+  const drag = wallDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  if (!canPlay() || busy || state !== drag.state || viewFlip !== drag.viewFlip) { cancelWallDrag(); draw(); return; }
+  if (!drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+  drag.active = true;
+  drag.button.classList.add("dragging");
+  hover = pick(event, drag.kind);
+  const ghost = $("wallDragGhost");
+  ghost.hidden = !!hover;
+  ghost.dataset.orientation = drag.kind;
+  ghost.style.transform = `translate(${event.clientX - (drag.kind === "H" ? 29 : 4)}px, ${event.clientY - 34 - (drag.kind === "V" ? 29 : 4)}px)`;
+  if (hover) ui.hint.textContent = legalHover() ? "Release to place wall" : "Cannot place a wall here";
+  else ui.hint.textContent = "Drag onto the board · release outside to cancel";
+  draw();
+}
+ui.boardTools.addEventListener("pointerdown", (event) => {
+  const button = event.target.closest('button[data-tool="H"], button[data-tool="V"]');
+  if (!button || wallDrag || !event.isPrimary || event.button !== 0 || !canPlay() || busy || !state.walls[state.turn]) return;
+  wallDrag = { button, pointerId: event.pointerId, kind: button.dataset.tool, state, viewFlip,
+    x: event.clientX, y: event.clientY, active: false };
+  try { button.setPointerCapture(event.pointerId); } catch { wallDrag = null; }
+});
+ui.boardTools.addEventListener("pointermove", updateWallDrag);
+ui.boardTools.addEventListener("pointerup", (event) => {
+  if (!wallDrag || event.pointerId !== wallDrag.pointerId) return;
+  updateWallDrag(event);
+  if (!wallDrag) return;
+  const { active } = wallDrag;
+  const action = active && hover ? actionOf(hover) : null;
+  const valid = active && action !== null && canPlay() && !busy && actionsFor(state).includes(action);
+  if (active) event.preventDefault();
+  const invalid = active && hover && !valid;
+  cancelWallDrag({ x: event.clientX, y: event.clientY });
+  if (valid) { if (!applyAction(action)) afterMove(); }
+  else if (invalid) status("Illegal wall", "Choose a free position that leaves both players a path.");
+  else draw();
+});
+for (const name of ["pointercancel", "lostpointercapture"]) {
+  ui.boardTools.addEventListener(name, (event) => {
+    if (wallDrag?.pointerId === event.pointerId) { cancelWallDrag(); draw(); }
+  });
+}
+window.addEventListener("blur", () => { cancelWallDrag(); draw(); });
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && wallDrag) { cancelWallDrag(); draw(); }
+});
 ui.themeSwitch.addEventListener("click", (e) => {
   const b = e.target.closest("button[data-theme]");
   if (b) setTheme(b.dataset.theme);
@@ -1915,6 +2051,12 @@ ui.themeSwitch.addEventListener("click", (e) => {
 $("boardTools").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-tool]");
   if (!button) return;
+  const pendingClick = suppressWallClick;
+  if (event.detail && pendingClick?.button === button && Math.hypot(event.clientX - pendingClick.x, event.clientY - pendingClick.y) < 3) {
+    suppressWallClick = null;
+    event.preventDefault();
+    return;
+  }
   boardTool = button.dataset.tool;
   for (const item of $("boardTools").querySelectorAll("button")) {
     item.setAttribute("aria-pressed", String(item === button));
@@ -1924,13 +2066,14 @@ $("boardTools").addEventListener("click", (event) => {
   draw();
 });
 cvs.addEventListener("mousemove", (e) => {
+  if (wallDrag) return;
   if (!canPlay() || busy) { if (hover) { hover = null; draw(); } return; }
   const h = pick(e);
   const same = hover && h && hover.kind === h.kind && hover.r === h.r && hover.c === h.c;
   hover = h;
   if (!same) draw();
 });
-cvs.addEventListener("mouseleave", () => { hover = null; draw(); });
+cvs.addEventListener("mouseleave", () => { if (!wallDrag) { hover = null; draw(); } });
 cvs.addEventListener("click", (e) => {
   if (!canPlay() || busy) return;
   const h = pick(e);
@@ -2008,6 +2151,8 @@ for (const [side, select] of [ui.engineRed, ui.engineBlue].entries()) {
     updateEngineRows();
     updateExtVisibility();
     updateButtons();
+    prewarmEngine();
+    updateAILoading();
     if (state.terminal) { updateResult(); return; }
     const colour = side === 0 ? "Red" : "Blue";
     status(`${colour} engine: ${engineName(side)}`, parseEngine(engineCfg[seat]).kind === "ext" && !extConfigured(seat)
@@ -2068,6 +2213,7 @@ window.quoridor = {
     pos: [...state.pos], walls: [...state.walls], turn: state.turn, ply: state.ply,
     terminal: state.terminal, winner: state.winner, legal: state.terminal ? [] : [...actionsFor(state)], last: lastAction,
   }),
+  metrics: () => lastAiMetrics ? { ...lastAiMetrics } : null,
   setMode,
   setTheme,
   get mode() { return mode; },

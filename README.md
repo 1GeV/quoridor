@@ -41,9 +41,17 @@ External AI setting uses an endpoint the player supplies, which may charge for
 requests. The Python desktop application is independent of this site.
 
 The build is about 71 MiB because the ONNX Runtime WebGPU wasm and model files are
-vendored. Each engine loads its model on first use. Pages cannot send
-COOP/COEP, so the wasm fallback runs single-threaded there, but the WebGPU path
-does not depend on those headers. Rooms use HTTPS + WebRTC; connectivity still
+vendored. Selected models start loading while the human is thinking, with
+verified model/runtime bytes cached locally for later visits. On GitHub Pages,
+a scoped service worker supplies COOP/COEP for this project's files so supported
+browsers can use up to four WASM CPU threads. CPU inference runs in a background
+worker; the plain Alpha-beta search has its own worker. Unsupported or restricted
+browsers keep the single-threaded path. Neural evaluations finish in full; no
+inference timeout or reduced model is used. Search budgets remain as selected.
+First-use model preparation shows downloaded byte progress, then reports file
+verification and runtime initialization separately; cached models show when
+they are being read from this browser.
+Rooms use HTTPS + WebRTC; connectivity still
 depends on the signalling provider, browser and network.
 
 ## Modes
@@ -53,6 +61,10 @@ depends on the signalling provider, browser and network.
 | **vs AI** | Play against the selected engine. *Flip sides* swaps who controls each colour at the current position. |
 | **2 players** | Hot-seat on one device, red moves first. |
 | **room** | Create a four-letter room and send the code to a friend. The host plays red, the guest blue. |
+
+**I always play from the bottom** also applies to room games: the guest's board
+rotates without changing move notation or network actions. Turning it off
+restores the fixed Red-at-bottom view.
 
 In **2 players**, **Undo** takes back one move. In **vs AI**, it returns to
 your previous turn. Both modes support undo after the game ends.
@@ -215,8 +227,15 @@ After building, `node tools/check-external-ai-ui.mjs` checks consent, all three
 formats, local CORS, caching, cancellation and mobile layout with local mock
 responses. It requires Chromium remote debugging at `http://127.0.0.1:9225`
 (override with `QUORIDOR_CDP_URL`) and uses an isolated browser context.
+`node tools/check-ai-performance.mjs` compares one- and four-thread browser
+execution, checks the full model outputs agree, measures continuous play from a
+wall-rich position, and verifies that model bytes are reused after a reload.
 
 ## Agent interface
+
+On touchscreens, drag a horizontal or vertical wall control onto the board and
+release to place it. Invalid positions and releases outside the board do not
+make a move; tapping a wall control still selects the orientation for tap-to-place.
 
 The page exposes a small API on `window.quoridor`, which is enough for a script
 or an external agent to play:
@@ -270,8 +289,9 @@ The WebGPU runtime is vendored (`vendor/ort/ort.min.js`,
 `ort-wasm-simd-threaded.jsep.{mjs,wasm}`), so the page does not need a CDN and
 needs no model CDN. `serve.js` sends
 `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` so threaded wasm
-is available; GitHub Pages cannot send those headers, which is why the WebGPU
-path is the primary one and the wasm path stays single-threaded there.
+is available. On GitHub Pages, a narrowly scoped service worker supplies those
+headers to same-origin GETs, enabling up to four CPU threads without caching or
+proxying external requests.
 
 ## Tests and tools
 

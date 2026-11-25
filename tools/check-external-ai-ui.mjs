@@ -9,8 +9,15 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../dist/", import.meta.url));
 const debug = process.env.QUORIDOR_CDP_URL || "http://127.0.0.1:9225";
 const calls = [], errors = [], delayed = [];
-const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
+const types = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".css": "text/css", ".json": "application/json" };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function touchDrag(page, start, end) {
+  const touch = (x, y) => ({ x, y, radiusX: 6, radiusY: 6, force: 1, id: 1 });
+  await page.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [touch(start.x, start.y)] });
+  await page.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [touch(end.x, end.y)] });
+  await page.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await sleep(80);
+}
 const listen = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(`http://127.0.0.1:${server.address().port}`)));
 const site = http.createServer(async (req, res) => {
   const relative = decodeURIComponent(req.url.split("?")[0]).replace(/^\/quoridor\/?/, "") || "index.html";
@@ -72,7 +79,8 @@ async function connect(url) {
       try { if (await run(fn)) return; } catch (error) { if (!/context.*destroyed|Cannot find context/i.test(error.message)) throw error; }
       await sleep(30);
     }
-    throw Error("Condition timed out: " + fn);
+    const snapshot = await run(() => ({ url: location.href, ready: document.readyState, isolated: crossOriginIsolated, controlled: !!navigator.serviceWorker.controller, retry: sessionStorage.getItem("quoridor.isolation.reload.v1"), status: document.querySelector("#status")?.textContent, scripts: [...document.scripts].map((script) => script.src), resources: performance.getEntriesByType("resource").map((entry) => entry.name) }));
+    throw Error("Condition timed out: " + fn + "\n" + JSON.stringify(snapshot) + "\n" + errors.join("\n"));
   };
   return { ws, send, run, wait };
 }
@@ -89,6 +97,8 @@ try {
   await page.send("Page.addScriptToEvaluateOnNewDocument", { source: "window.__workerStarts=0;const OriginalWorker=window.Worker;window.Worker=class extends OriginalWorker{constructor(...args){super(...args);window.__workerStarts++;}};" });
   await page.send("Page.navigate", { url: origin + "/quoridor/" });
   await page.wait(() => !!window.quoridor);
+  assert.deepEqual(await page.run(() => ({ isolated: crossOriginIsolated, sharedMemory: typeof SharedArrayBuffer !== "undefined" })), { isolated: true, sharedMemory: true });
+  console.log("PASS: static hosting starts with cross-origin isolation and shared memory, without server header configuration");
   const fresh = async (settings = {}, profiles = [{}, profile()]) => {
     releaseReplies(); calls.length = 0;
     await page.run((settings, profiles) => {
@@ -210,6 +220,84 @@ try {
   assert.equal(await page.run(() => document.querySelector("#extSeat").value), "1");
   assert.equal(await ply(), 0); assert.equal(calls.length, 0);
   console.log("PASS: flipped opponent retains its logical profile and waits for that profile's consent");
+
+  await fresh({ mode: "hotseat" });
+  await page.run(() => {
+    const context = document.querySelector("#board").getContext("2d"), fillText = context.fillText.bind(context);
+    window.roomLabels = [];
+    context.fillText = (text, x, y, ...args) => { roomLabels.push({ text, x, y }); return fillText(text, x, y, ...args); };
+    class Events {
+      constructor() { this.events = {}; this.open = true; this.sent = []; }
+      on(name, fn) { (this.events[name] ||= []).push(fn); }
+      off(name, fn) { this.events[name] = (this.events[name] || []).filter((item) => item !== fn); }
+      emit(name, value) { for (const fn of this.events[name] || []) fn(value); }
+      send(value) { this.sent.push(value); }
+      close() { this.open = false; this.emit("close"); }
+    }
+    window.Peer = class extends Events {
+      connect() { return window.roomChannel = new Events(); }
+      destroy() { this.destroyed = true; }
+    };
+    quoridor.setMode("room"); document.querySelector("#joinCode").value = "ABCD"; document.querySelector("#btnJoin").click();
+  });
+  await page.wait(() => !!window.roomChannel);
+  await page.run(() => roomChannel.emit("data", { t: "sync", moves: [67] }));
+  const roomRows = () => page.run(() => roomLabels.filter((label) => /^[1-9]$/.test(label.text)).slice(-9).map((label) => label.text));
+  assert.deepEqual(await roomRows(), ["9", "8", "7", "6", "5", "4", "3", "2", "1"]);
+  await page.run(() => {
+    const labels = roomLabels.slice(-18), col = labels.find((label) => label.text === "e"), row = labels.find((label) => label.text === "2");
+    const board = document.querySelector("#board"), rect = board.getBoundingClientRect();
+    board.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: rect.left + col.x, clientY: rect.top + row.y }));
+  });
+  assert.equal(await page.run(() => quoridor.state().pos[1]), 13);
+  assert.deepEqual(await page.run(() => roomChannel.sent.at(-1)), { t: "move", a: 13, ply: 1 });
+  await page.run(() => document.querySelector("#viewBottom").click());
+  assert.deepEqual(await roomRows(), ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+  assert.equal(await ply(), 2);
+  await page.run(() => { document.querySelector("#viewBottom").click(); roomChannel.emit("data", { t: "sync", moves: [67, 13, 58] }); });
+  await page.run(() => {
+    const labels = roomLabels.slice(-18), columns = labels.filter((label) => /^[a-i]$/.test(label.text)), rows = labels.filter((label) => /^[1-9]$/.test(label.text));
+    const cell = columns[1].x - columns[0].x;
+    document.querySelector('[data-tool="H"]').click();
+    const board = document.querySelector("#board"), rect = board.getBoundingClientRect();
+    board.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: rect.left + columns[0].x + 4.5 * cell, clientY: rect.top + rows[0].y + 3.5 * cell }));
+  });
+  assert.equal(await page.run(() => quoridor.state().last), 116);
+  assert.equal(await page.run(() => roomChannel.sent.at(-1).a), 116);
+  await page.run(() => document.querySelector("#btnCreate").click());
+  await page.wait(() => document.querySelector("#status").textContent === "Waiting for an opponent");
+  assert.deepEqual(await roomRows(), ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+  console.log("PASS: room guest plays from the bottom; pawn/wall clicks keep canonical network actions; host orientation and toggling work");
+
+  await page.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await page.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+  await page.run(() => quoridor.setMode("hotseat"));
+  const mobilePoints = await page.run(() => {
+    const button = document.querySelector('[data-tool="H"]').getBoundingClientRect();
+    const vertical = document.querySelector('[data-tool="V"]').getBoundingClientRect();
+    const board = document.querySelector("#board").getBoundingClientRect();
+    const cell = Math.round(board.width / 10.48), margin = Math.floor(cell * .74);
+    const at = (gx, gy) => ({ x: board.left + margin + gx * cell, y: board.top + margin + gy * cell });
+    return { start: { x: button.left + button.width / 2, y: button.top + button.height / 2 },
+      startV: { x: vertical.left + vertical.width / 2, y: vertical.top + vertical.height / 2 },
+      legalH: at(4.5, 3.5), overlapH: at(5.5, 3.5), outside: { x: board.right + 35, y: board.top + board.height / 2 }, legalV: at(1.5, 4.5) };
+  });
+  await touchDrag(page, mobilePoints.start, mobilePoints.legalH);
+  assert.equal(await ply(), 1);
+  assert.equal(await page.run(() => quoridor.state().last), 81 + 3 * 8 + 4);
+  await touchDrag(page, mobilePoints.start, mobilePoints.overlapH);
+  assert.equal(await ply(), 1, "overlapping wall drag must not play");
+  await touchDrag(page, mobilePoints.start, mobilePoints.outside);
+  assert.equal(await ply(), 1, "release outside the board must cancel");
+  await touchDrag(page, mobilePoints.startV, mobilePoints.legalV);
+  assert.equal(await ply(), 2);
+  assert.equal(await page.run(() => quoridor.state().last), 145 + 4 * 8 + 1);
+  const phone = await page.run(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth,
+    touchAction: getComputedStyle(document.querySelector('[data-tool="H"]')).touchAction,
+    target: document.querySelector('[data-tool="H"]').getBoundingClientRect().height }));
+  assert.ok(phone.scroll <= phone.width, JSON.stringify(phone)); assert.equal(phone.touchAction, "none"); assert.ok(phone.target >= 44);
+  console.log("PASS: real mobile touch drag places both orientations; overlap/outside releases cancel; touch targets/layout are valid");
+  await page.send("Emulation.setTouchEmulationEnabled", { enabled: false });
 
   for (const width of [320, 390, 768, 1280]) {
     await page.send("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 });
