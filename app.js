@@ -117,6 +117,7 @@ const ui = {
   continueNote: $("continueNote"),
   btnImport: $("btnImport"),
   btnExport: $("btnExport"),
+  btnExportPrefix: $("btnExportPrefix"),
   importFile: $("importFile"),
   archiveNote: $("archiveNote"),
   btnPrev: $("btnPrev"),
@@ -772,7 +773,11 @@ function updateButtons() {
   ui.btnContinue.disabled = !replayStates || state.terminal;
   ui.continueNote.textContent = state.terminal ? "Game over here. Go back a move to continue." : "";
   ui.btnImport.disabled = mode === "room";
-  ui.btnExport.disabled = mode === "room";
+  ui.btnExport.disabled = mode === "room" || (mode === "replay" && !replayStates);
+  ui.btnExport.textContent = mode === "replay" ? "Export full game" : "Export position";
+  ui.btnExport.title = replayStates ? `Download all ${total} recorded moves` : "Download the moves leading to the current position";
+  ui.btnExportPrefix.hidden = !replayStates || replayIdx === total;
+  ui.btnExportPrefix.textContent = `Export up to move ${replayIdx}`;
   ui.btnAuto.textContent = replayPlaying ? "Stop" : "Auto";
   ui.btnLoad.disabled = !selectedSavedId || mode === "room";
   ui.btnDelete.disabled = !savedGames.length;
@@ -1850,17 +1855,19 @@ async function importGame() {
     ui.archiveNote.textContent = error.message;
   }
 }
-function exportPosition() {
-  if (mode === "room") return;
+function exportPosition(currentOnly = false) {
+  if (ui.btnExport.disabled) return;
+  const fullReplay = !!replayStates && !currentOnly;
+  const exportedMoves = fullReplay ? replayMoves : moves;
   const position = {
     format: GAME_FILE, version: 1,
     p0: playerName(0), p1: playerName(1),
-    moves: moves.map((move) => move.a),
+    moves: exportedMoves.map((move) => move.a),
   };
   const url = URL.createObjectURL(new Blob([JSON.stringify(position, null, 2)], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = `quoridor-move-${state.ply}.json`;
+  link.download = `quoridor-${fullReplay ? "game" : "move"}-${exportedMoves.length}.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -2599,7 +2606,8 @@ ui.replayPosition.addEventListener("input", () => jumpReplay(Number(ui.replayPos
 ui.btnContinue.addEventListener("click", continueReplay);
 ui.btnImport.addEventListener("click", () => ui.importFile.click());
 ui.importFile.addEventListener("change", importGame);
-ui.btnExport.addEventListener("click", exportPosition);
+ui.btnExport.addEventListener("click", () => exportPosition());
+ui.btnExportPrefix.addEventListener("click", () => exportPosition(true));
 ui.btnAuto.addEventListener("click", toggleReplayAuto);
 ui.btnLoad.addEventListener("click", loadSelectedSaved);
 ui.btnDelete.addEventListener("click", deleteSaved);

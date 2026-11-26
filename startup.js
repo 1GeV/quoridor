@@ -29,4 +29,4 @@ async function enableThreads() {
   }
 }
 await enableThreads();
-await import("./app.js?v=sigma-legal-sidestep");
+await import("./app.js?v=replay-export");
