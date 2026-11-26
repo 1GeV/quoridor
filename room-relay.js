@@ -4,6 +4,8 @@ const encoder = new TextEncoder(), decoder = new TextDecoder();
 const CHUNK_BYTES = 1800;
 const MAX_MESSAGE_BYTES = 256 * 1024;
 const RETRY_DELAYS = [0, 250, 900];
+const RATE_LIMIT_DELAY = 6000;
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function base64(bytes) {
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
@@ -18,9 +20,22 @@ export function isRelayCode(code) {
   return /^R-[\w-]{22}$/.test(code) && base64(unbase64(code.slice(2))) === code.slice(2);
 }
 
-async function postMessage(outbox, body) {
-  for (const delay of RETRY_DELAYS) {
-    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+function canRetryRateLimit(response, code) {
+  const retryAfter = response.headers.get("Retry-After");
+  if (retryAfter) {
+    const milliseconds = /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now();
+    if (Number.isFinite(milliseconds)) return milliseconds <= RATE_LIMIT_DELAY;
+  }
+  // ntfy refills its request allowance roughly every five seconds.
+  return code === 42901;
+}
+
+async function postMessage(outbox, body, isActive) {
+  let attempt = 0, delay = 0, rateLimitRetried = false;
+  while (attempt < RETRY_DELAYS.length) {
+    if (!isActive()) return;
+    if (delay) await wait(delay);
+    if (!isActive()) return;
     let response;
     try {
       response = await fetch(outbox, {
@@ -29,11 +44,22 @@ async function postMessage(outbox, body) {
         credentials: "omit", referrerPolicy: "no-referrer", signal: AbortSignal.timeout(5000),
       });
     } catch {
+      delay = RETRY_DELAYS[++attempt];
       continue;
     }
     if (response.ok) return;
-    if (response.status === 429) throw new Error("The free room relay has reached its message limit. Try again later.");
+    if (response.status === 429) {
+      const { code } = await response.json().catch(() => ({})) ?? {};
+      if (code === 42908) throw new Error("The free room relay's daily message limit has been reached. Try again after it resets, or start a Direct room.");
+      if (!rateLimitRetried && canRetryRateLimit(response, code)) {
+        rateLimitRetried = true;
+        delay = RATE_LIMIT_DELAY;
+        continue;
+      }
+      throw new Error("The free room relay is limiting requests. Wait before rejoining with the same invitation.");
+    }
     if (response.status < 500) break;
+    delay = RETRY_DELAYS[++attempt];
   }
   throw new Error("The room relay could not deliver a message.");
 }
@@ -74,12 +100,13 @@ export async function openRelayRoom(code, host, { onGuest, onStatus, signal } = 
   }
   signal?.addEventListener("abort", cancel, { once: true });
 
-  function publish(packet) {
+  function publish(packet, isActive = () => true) {
     const post = pendingWrite.then(async () => {
+      if (!isActive()) return;
       const nonce = crypto.getRandomValues(new Uint8Array(12));
       const data = encoder.encode(JSON.stringify(packet));
       const bytes = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, additionalData: outgoing }, key, data));
-      await postMessage(outbox, base64(nonce) + "." + base64(bytes));
+      await postMessage(outbox, base64(nonce) + "." + base64(bytes), isActive);
     });
     pendingWrite = post.catch(() => {});
     return post;
@@ -115,7 +142,7 @@ export async function openRelayRoom(code, host, { onGuest, onStatus, signal } = 
             id, kind: "data", seq: ++sent, part: base64(bytes.subarray(offset, offset + CHUNK_BYTES)),
             last: offset + CHUNK_BYTES >= bytes.length,
           };
-          void publish(packet).catch((error) => {
+          void publish(packet, () => link.open).catch((error) => {
             if (link.open) { emit("error", error); link.stop(false); }
           });
         }
@@ -186,7 +213,7 @@ export async function openRelayRoom(code, host, { onGuest, onStatus, signal } = 
     join() {
       channel = makeChannel(newRelayCode());
       const link = channel;
-      void publish({ id: link.id, kind: "join" }).catch((error) => {
+      void publish({ id: link.id, kind: "join" }, () => link.open).catch((error) => {
         if (link.open) { link.stop(false); onStatus?.(false, error); }
       });
       return link;
