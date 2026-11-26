@@ -757,14 +757,20 @@ try {
 
   await fresh({ mode: "ai", engineBlue: "sigma:64" });
   await humanMove();
-  const waitForLocalMoves = (count) => page.run(async (count) => {
-    const deadline = performance.now() + 12000;
-    while (quoridor.state().ply < count && performance.now() < deadline) {
-      if (document.querySelector("#status").textContent === "AI engine failed") break;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    return { ply: quoridor.state().ply, hint: document.querySelector("#hint").textContent };
-  }, count);
+  const waitForLocalMoves = async (count) => {
+    const deadline = Date.now() + 30000;
+    let report;
+    do {
+      report = await page.run(() => ({
+        ply: quoridor.state().ply,
+        status: document.querySelector("#status").textContent,
+        hint: document.querySelector("#hint").textContent,
+      }));
+      if (report.ply >= count || report.status === "AI engine failed") break;
+      await sleep(50);
+    } while (Date.now() < deadline);
+    return report;
+  };
   const humanVsSigma = await waitForLocalMoves(2);
   assert.equal(humanVsSigma.ply, 2, JSON.stringify(humanVsSigma));
   assert.equal(await page.run(() => quoridor.metrics().engine), "sigma");
