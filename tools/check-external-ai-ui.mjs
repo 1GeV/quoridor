@@ -1,5 +1,6 @@
 // Run after npm run build, with Chromium's remote debugging port available.
 // Uses an isolated browser context and local mocks; never calls a paid provider.
+// Add --replay-export to run just the archive export regression.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import http from "node:http";
@@ -88,9 +89,9 @@ async function connect(url) {
     if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
     return result.result.value;
   };
-  const wait = async (fn) => {
+  const wait = async (fn, ...args) => {
     for (let i = 0; i < 160; i++) {
-      try { if (await run(fn)) return; } catch (error) { if (!/context.*destroyed|Cannot find context/i.test(error.message)) throw error; }
+      try { if (await run(fn, ...args)) return; } catch (error) { if (!/context.*destroyed|Cannot find context/i.test(error.message)) throw error; }
       await sleep(30);
     }
     const snapshot = await run(() => ({ url: location.href, ready: document.readyState, isolated: crossOriginIsolated, controlled: !!navigator.serviceWorker.controller, retry: sessionStorage.getItem("quoridor.isolation.reload.v1"), status: document.querySelector("#status")?.textContent, scripts: [...document.scripts].map((script) => script.src), resources: performance.getEntriesByType("resource").map((entry) => entry.name) }));
@@ -100,7 +101,7 @@ async function connect(url) {
 }
 
 let browser, page, browserContextId;
-try {
+browserChecks: try {
   const { webSocketDebuggerUrl } = await (await fetch(debug + "/json/version")).json();
   browser = await connect(webSocketDebuggerUrl);
   ({ browserContextId } = await browser.send("Target.createBrowserContext"));
@@ -151,6 +152,61 @@ try {
     return !send.disabled && send.textContent === "Send";
   });
   const chatLog = () => page.run(() => document.querySelector("#chatLog").textContent);
+
+  const redWin = [67, 81, 58, 5, 49, 6, 40, 7, 31, 8, 22, 17, 13, 26, 4];
+  const finishLine = (line) => page.run((moves) => {
+    for (const a of moves) if (!quoridor.move(a)) throw Error("Invalid test move " + a);
+  }, line);
+  await fresh({ mode: "hotseat", saveGames: true });
+  const longGame = [144, 146, ...Array.from({ length: 28 }, (_, i) => [67, 13, 76, 4][i % 4]), ...redWin];
+  await finishLine(longGame);
+  await page.run(() => {
+    document.querySelector("#btnResultBoard").click();
+    document.querySelector("#btnLoad").click();
+    const slider = document.querySelector("#replayPosition");
+    slider.value = "11";
+    slider.dispatchEvent(new Event("input"));
+  });
+  assert.equal(await page.run(() => document.querySelector("#replayLabel").textContent), "move 11 / 45");
+  const download = (id) => page.run(async (id) => {
+    const button = document.getElementById(id);
+    if (button.disabled || getComputedStyle(button).display === "none") throw Error(`Cannot click ${id}`);
+    const original = HTMLAnchorElement.prototype.click;
+    let file;
+    try {
+      // Read the actual download payload without writing to the user's Downloads folder.
+      HTMLAnchorElement.prototype.click = function () {
+        file = { name: this.download, body: fetch(this.href).then((reply) => reply.json()) };
+      };
+      button.click();
+    } finally { HTMLAnchorElement.prototype.click = original; }
+    return { name: file.name, body: await file.body, label: button.textContent };
+  }, id);
+  const fullExport = await download("btnExport");
+  const prefixExport = await download("btnExportPrefix");
+  const v1Record = { format: "quoridor-game", version: 1, p0: "Player 1", p1: "Player 2", moves: longGame };
+  assert.deepEqual(fullExport, { name: "quoridor-game-45.json", body: v1Record, label: "Export full game" });
+  assert.deepEqual(prefixExport, {
+    name: "quoridor-move-11.json", body: { ...v1Record, moves: longGame.slice(0, 11) }, label: "Export up to move 11",
+  });
+  assert.equal(await ply(), 11, "neither export should move the replay cursor");
+  for (const exported of [fullExport, prefixExport]) {
+    await page.run(({ name, body }) => {
+      const input = document.querySelector("#importFile");
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([JSON.stringify(body)], name, { type: "application/json" }));
+      input.files = transfer.files;
+      input.dispatchEvent(new Event("change"));
+    }, exported);
+    await page.wait((name) => document.querySelector("#archiveNote").textContent === `Imported ${name}.`, exported.name);
+    assert.equal(await ply(), exported.body.moves.length);
+    assert.equal(await page.run(() => document.querySelector("#btnExportPrefix").hidden), true);
+  }
+  await page.run(() => document.querySelector("#btnContinue").click());
+  assert.equal(await page.run(() => quoridor.mode), "hotseat");
+  assert.deepEqual(await download("btnExport"), { ...prefixExport, label: "Export position" });
+  console.log("PASS: a saved replay at 11/45 exports either all 45 moves or the first 11; both re-import and live exports still save the current position");
+  if (process.argv.includes("--replay-export")) break browserChecks;
 
   await fresh({}, [{}, {}]);
   assert.equal(await page.run(() => document.querySelector("#extAllowMoves").disabled), false);
@@ -515,7 +571,6 @@ try {
   await page.wait(() => document.querySelector("#status").textContent === "Waiting for an opponent");
   console.log("PASS: stalled room creation times out, releases signalling listeners, and can be retried");
 
-  const redWin = [67, 81, 58, 5, 49, 6, 40, 7, 31, 8, 22, 17, 13, 26, 4];
   const blueWin = [75, 13, 74, 22, 73, 31, 72, 40, 63, 49, 54, 58, 45, 67, 36, 76];
   const result = () => page.run(() => {
     const get = (id) => document.getElementById(id);
@@ -596,9 +651,6 @@ try {
   assert.equal(disconnected.rematchNotice, "");
   console.log("PASS: Room rematch requests are visible in the result and board, wait for host acceptance, then synchronize the new game");
 
-  const finishLine = (line) => page.run((moves) => {
-    for (const a of moves) if (!quoridor.move(a)) throw Error("Invalid test move " + a);
-  }, line);
   await fresh({ mode: "ai", humanSide: 0, engineBlue: "ab:4:350", saveGames: false });
   await finishLine(redWin);
   const win = await result();

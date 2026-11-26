@@ -240,6 +240,8 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .btn-grid.three { grid-template-columns: repeat(3, 1fr); }
 .archive-actions { margin-top: 8px; }
+.archive-prefix { grid-column: 1 / -1; }
+.archive-prefix[hidden] { display: none; }
 .speed.replay-position { margin: 0 0 12px; }
 .replay-rate { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
 .replay-rate label { color: var(--muted); font-size: 15px; }
