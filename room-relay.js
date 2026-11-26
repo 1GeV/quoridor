@@ -3,6 +3,7 @@ const RELAY = "https://ntfy.sh/";
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 const CHUNK_BYTES = 1800;
 const MAX_MESSAGE_BYTES = 256 * 1024;
+const RETRY_DELAYS = [0, 250, 900];
 
 function base64(bytes) {
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
@@ -15,6 +16,26 @@ export function newRelayCode() {
 }
 export function isRelayCode(code) {
   return /^R-[\w-]{22}$/.test(code) && base64(unbase64(code.slice(2))) === code.slice(2);
+}
+
+async function postMessage(outbox, body) {
+  for (const delay of RETRY_DELAYS) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    let response;
+    try {
+      response = await fetch(outbox, {
+        method: "POST", body,
+        headers: { Cache: "no", Firebase: "no" },
+        credentials: "omit", referrerPolicy: "no-referrer", signal: AbortSignal.timeout(5000),
+      });
+    } catch {
+      continue;
+    }
+    if (response.ok) return;
+    if (response.status === 429) throw new Error("The free room relay has reached its message limit. Try again later.");
+    if (response.status < 500) break;
+  }
+  throw new Error("The room relay could not deliver a message.");
 }
 
 export async function openRelayRoom(code, host, { onGuest, onStatus, signal } = {}) {
@@ -58,13 +79,7 @@ export async function openRelayRoom(code, host, { onGuest, onStatus, signal } = 
       const nonce = crypto.getRandomValues(new Uint8Array(12));
       const data = encoder.encode(JSON.stringify(packet));
       const bytes = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, additionalData: outgoing }, key, data));
-      const response = await fetch(outbox, {
-        method: "POST", body: base64(nonce) + "." + base64(bytes),
-        headers: { Cache: "no", Firebase: "no" },
-        credentials: "omit", referrerPolicy: "no-referrer", signal: AbortSignal.timeout(12000),
-      });
-      if (response.status === 429) throw new Error("The free room relay has reached its message limit. Try again later.");
-      if (!response.ok) throw new Error("The room relay could not deliver a message.");
+      await postMessage(outbox, base64(nonce) + "." + base64(bytes));
     });
     pendingWrite = post.catch(() => {});
     return post;

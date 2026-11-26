@@ -9,7 +9,7 @@
     {
       "path": "index.html",
       "bytes": 19663,
-      "sha256": "fe00da3e55df87776710c76fc44921cd38f44e8ca308410be56dea37f4b87797"
+      "sha256": "0dae86f83ba42a661a100d9fe0f4732620c36a4f15fbcdf296db5257ccb1dcdf"
     },
     {
       "path": "guide.html",
@@ -84,7 +84,7 @@
     {
       "path": "app.js",
       "bytes": 100849,
-      "sha256": "57f603373a0532c214114b13c487835572d1845656e4cf6968f889daf8080f55"
+      "sha256": "28f9e9c57681e4667042f58d3ee7e6208ceca1f1559d827cc4ca7fd5fd3a673d"
     },
     {
       "path": "rules.js",
@@ -108,13 +108,13 @@
     },
     {
       "path": "room-relay.js",
-      "bytes": 7109,
-      "sha256": "b722c2092773ace0d748d829ebd201131860db6736c025f52757070dd3c04b94"
+      "bytes": 7441,
+      "sha256": "aad2c0e39a9a3b0c8f94ad371e69103aba88aa0aaf04300bd3b53bc4c07c1fa8"
     },
     {
       "path": "startup.js",
       "bytes": 1575,
-      "sha256": "5def4af85373d0b0bcb6e7f7068ad9c45187bc0696d42b5a4612651c41f14199"
+      "sha256": "486aff979924c58e688def9620ee70fa2d6f39ab870f23f55e3ae002da6b6238"
     },
     {
       "path": "isolation-sw.js",

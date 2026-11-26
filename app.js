@@ -1943,7 +1943,7 @@ async function relayRoom(joinCode) {
   status(host ? "Creating a room…" : "Joining the room…", "Connecting to the room relay.");
   roomMsg("Connecting to the room relay.");
   try {
-    const { newRelayCode, openRelayRoom } = await import("./room-relay.js?v=room-https");
+    const { newRelayCode, openRelayRoom } = await import("./room-relay.js?v=room-retry");
     const code = joinCode || "R-" + newRelayCode();
     const room = await openRelayRoom(code, host, {
       signal: controller.signal,
@@ -1990,7 +1990,7 @@ async function joinFromInput() {
   const code = codeFromInput(ui.joinCode.value);
   if (!code.startsWith("R-")) { void joinRoom(); return; }
   try {
-    const { isRelayCode } = await import("./room-relay.js?v=room-https");
+    const { isRelayCode } = await import("./room-relay.js?v=room-retry");
     if (mode !== "room") return;
     if (isRelayCode(code)) void relayRoom(code);
     else roomMsg("Paste the full invitation link or room code.");
