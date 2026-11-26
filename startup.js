@@ -29,4 +29,4 @@ async function enableThreads() {
   }
 }
 await enableThreads();
-await import("./app.js?v=websocket-room");
+await import("./app.js?v=room-colours");

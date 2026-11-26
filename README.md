@@ -60,9 +60,9 @@ depends on the signalling provider, browser and network.
 | --- | --- |
 | **vs AI** | Play against the selected engine. *Flip sides* swaps who controls each colour at the current position. |
 | **2 players** | Hot-seat on one device, red moves first. |
-| **room** | Create a four-letter room and send the code to a friend. The host plays red, the guest blue. |
+| **room** | Choose the host's colour, create an invitation room, and share the link with a friend. |
 
-**I always play from the bottom** also applies to room games: the guest's board
+**I always play from the bottom** also applies to room games: the Blue player's board
 rotates without changing move notation or network actions. Turning it off
 restores the fixed Red-at-bottom view.
 
@@ -99,15 +99,15 @@ within its time budget, normal search takes over.
 
 ## Rooms
 
-* **Create room** opens an HTTPS relay room. Share the invitation link with one
-  opponent. They open it and select **Join**. The guest plays Blue.
+* **Create room** opens an HTTPS relay room. Choose the host's colour (Red moves
+  first), then share the invitation link. The other player opens it and selects **Join**.
 * **Direct room** uses the public PeerJS broker and a four-character code, for
-  example `AVK7`. This option needs a usable WebRTC connection between the browsers.
+  example `AVK7`. If it times out across networks, create a separate W- room instead.
 * Both browsers check move legality, whose turn it is and the move number.
   The host keeps the move list and sends it to each guest after connecting.
   Leaving and joining again with the same code restores the game while the host
-  has the room open. The guest can request a rematch and the host decides when
-  to start it.
+  has the room open. After the result, either player can request a rematch with
+  the same or swapped colours; the board resets only after the other player accepts.
 * Relay room moves and synchronization messages are encrypted in the browser.
   New rooms use the Cloudflare relay. Existing R-
   invitations still use ntfy.sh. If a room disconnects, rejoin with the same
