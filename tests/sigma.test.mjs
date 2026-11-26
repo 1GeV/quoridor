@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { State } from "../rules.js";
-import { encode, SigmaAgent, SigmaNet } from "../sigma.js";
+import { actionIndex, encode, legalIndexMap, SigmaAgent, SigmaNet } from "../sigma.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ref = JSON.parse(fs.readFileSync(path.join(here, "sigma_ref.json"), "utf-8"));
@@ -30,6 +30,32 @@ test("encoder hash matches the Python reference", () => {
   const buf = Buffer.from(encode(s).buffer);
   const sha = crypto.createHash("sha256").update(buf).digest("hex");
   assert.equal(sha, ref.encode_sha, "encode() differs from Python");
+});
+
+test("Sigma keeps the legal diagonal around a horizontally adjacent pawn", async () => {
+  // The straight jump over e5 is blocked. Red can go from d5 to e4
+  // via e5 even though d5 cannot step directly toward d4. Check the
+  // reflected position for Blue too; both use the same policy index.
+  for (const side of [0, 1]) {
+    const state = State.new();
+    state.turn = side;
+    state.pos = side === 0 ? [39, 40] : [40, 39];
+    state.hw[(side === 0 ? 3 : 4) * 8 + 2] = 1;
+    state.vw[4 * 8 + 4] = 1;
+    const sidestep = side === 0 ? 31 : 49;
+    const blocked = side === 0 ? 30 : 48;
+    assert.ok(state.moves().includes(sidestep));
+    assert.equal(actionIndex(state, blocked), null);
+    const mapped = legalIndexMap(state);
+    assert.deepEqual(mapped.map(([, move]) => move), state.legal());
+    assert.equal(new Set(mapped.map(([index]) => index)).size, mapped.length);
+    assert.equal(actionIndex(state, sidestep), 5);
+    const logits = new Float32Array(136).fill(-10);
+    logits[5] = 10;
+    const net = new SigmaNet(null, () => ({ logits, values: [0] }));
+    const agent = new SigmaAgent(net, { sims: 0 });
+    assert.equal(await agent.choose(state), sidestep);
+  }
 });
 
 test("wasm inference reproduces the Python logits", async (t) => {
