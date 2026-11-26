@@ -774,6 +774,41 @@ try {
   assert.equal(calls.length, 0);
   assert.deepEqual(errors, []);
   console.log("PASS: Sigma starts a cold runtime in VS AI and alternates with Claustrophobia in AI vs AI");
+
+  const { identifier: simulateGpuLoss } = await page.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `(${() => {
+      Object.defineProperty(navigator, "gpu", { value: {} });
+      const RealWorker = window.Worker;
+      window.Worker = class extends RealWorker {
+        constructor(url, ...options) {
+          if (!new URL(url, location.href).pathname.endsWith("/sigma-gpu-worker.js")) {
+            super(url, ...options);
+            return;
+          }
+          // Pass the two startup probes, then mimic a GPU failure during play.
+          const reply = ({ data: { id, type, batch } }) => {
+            if (type === "probe") postMessage({ id, result: true });
+            else if (type === "load") postMessage({ id });
+            else if (++calls > 2) postMessage({ id, error: "Test GPU lost" });
+            else postMessage({ id, result: { logits: new Float32Array(batch * 136), values: new Float32Array(batch) } });
+          };
+          const blob = URL.createObjectURL(new Blob(["let calls = 0; onmessage = " + reply], { type: "text/javascript" }));
+          super(blob, ...options);
+          URL.revokeObjectURL(blob);
+        }
+      };
+    }})()`,
+  });
+  await fresh({ mode: "ai", engineBlue: "sigma:64" });
+  await page.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: simulateGpuLoss });
+  await humanMove();
+  const gpuRecovery = await waitForLocalMoves(2);
+  assert.equal(gpuRecovery.ply, 2, JSON.stringify(gpuRecovery));
+  assert.match(gpuRecovery.hint, /Sigma.*CPU/);
+  assert.equal(await page.run(() => quoridor.metrics().engine), "sigma");
+  assert.deepEqual(errors, []);
+  console.log("PASS: Sigma retries the same turn on CPU when an initialized GPU fails");
+
   for (const width of [1200, 390]) {
     await page.send("Emulation.setDeviceMetricsOverride", { width, height: 844, deviceScaleFactor: 1, mobile: width < 500 });
     await page.send("Page.navigate", { url: origin + "/quoridor/guide.html" });

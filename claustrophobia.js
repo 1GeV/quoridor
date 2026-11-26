@@ -1,6 +1,6 @@
 // Claustrophobia v1.3.1 encoder contract (MIT, Plaaasma). See NOTICE.md.
 import { A_H, A_V, distMap, stepOk } from "./rules.js";
-import { loadModelSession } from "./sigma.js";
+import { loadModelSession } from "./sigma.js?v=sigma-runtime";
 
 const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
