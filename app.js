@@ -1,9 +1,10 @@
 // Quoridor 9x9 browser UI: board, AI, AI-vs-AI autoplay, replay and saved games.
 // Static site, no paid services: ONNX Runtime Web and PeerJS are vendored.
 import { State, actionStr, A_H, A_V, N_MOVES } from "./rules.js";
-import { SigmaNet, SigmaAgent, SigmaBatchAgent } from "./sigma.js";
+import { SigmaNet, SigmaAgent, SigmaBatchAgent } from "./sigma.js?v=sigma-runtime";
 import { searchGuided } from "./guided.js";
-import { ClaustrophobiaNet } from "./claustrophobia.js";
+import { openSigmaGpu } from "./sigma-gpu.js";
+import { ClaustrophobiaNet } from "./claustrophobia.js?v=sigma-runtime";
 import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS, EXTERNAL_EFFORTS } from "./external-ai.js";
 import { positionKey } from "./detour.js";
 import { clearAIAssets, pruneAIAssets, subscribeAIAssets } from "./ai-assets.js";
@@ -332,6 +333,7 @@ let championReady = false;
 let prewarmTimer = null;
 let sigmaQueue = Promise.resolve();
 let sigmaBatch = false;
+let sigmaGpuUnavailable = false;
 let sigmaAgents = { 0: null, 1: null };
 let alphaWorker = null;
 let cancelAlphaSearch = null;
@@ -861,12 +863,12 @@ function ensureSigma() {
   if (sigmaNet) return Promise.resolve(sigmaNet);
   if (sigmaPromise) return sigmaPromise;
   sigmaPromise = (async () => {
-    await loadRuntime();
-    if (navigator.gpu) {
+    if (navigator.gpu && !sigmaGpuUnavailable) {
+      let gpu;
       try {
-        const net = await SigmaNet.load("./models/sigma_9x9_batch.onnx", null,
-          { executionProviders: ["webgpu"] });
-        try {
+        gpu = await openSigmaGpu();
+        if (gpu) {
+          const net = new SigmaNet(gpu, gpu.infer);
           const opening = State.new();
           const moved = opening.doAction(67);
           const single = await net.raw(moved), batch = await net.rawBatch([opening, moved]);
@@ -876,14 +878,14 @@ function ensureSigma() {
           }
           sigmaBatch = true;
           return sigmaNet = net;
-        } catch (error) {
-          void net.session.release().catch(() => {});
-          throw error;
         }
       } catch (err) {
+        gpu?.release();
         console.warn("WebGPU path failed, falling back to wasm", err);
       }
+      sigmaGpuUnavailable = true;
     }
+    await loadRuntime();
     sigmaBatch = false;
     return sigmaNet = await SigmaNet.load("./models/sigma_9x9.onnx");
   })().finally(() => { sigmaPromise = null; updateAILoading(); });
@@ -1373,15 +1375,31 @@ async function chooseFor(side, position, epoch) {
       if (epoch !== aiEpoch) return null;
       await ensureSigma();
       if (epoch !== aiEpoch) return null;
-      const ag = sigmaAgentFor(side, cfg);
-      const t0 = performance.now();
       const budget = cfg.sims >= 2048 ? 4000 : cfg.sims >= 1024 ? 3200 : cfg.sims >= 512 ? 2400 : 1400;
-      const a = await ag.choose(position, {
+      const options = {
         temperature: 0,
         ms: budget,
         cancelled: () => epoch !== aiEpoch,
         yieldToUI: true,
-      });
+      };
+      let ag = sigmaAgentFor(side, cfg);
+      const t0 = performance.now();
+      let a;
+      try {
+        a = await ag.choose(position, options);
+      } catch (error) {
+        if (!sigmaBatch) throw error;
+        console.warn("Sigma GPU inference failed, retrying on CPU", error);
+        sigmaGpuUnavailable = true;
+        sigmaNet.session.release();
+        sigmaNet = null;
+        sigmaAgents = { 0: null, 1: null };
+        if (epoch !== aiEpoch) return null;
+        await ensureSigma();
+        if (epoch !== aiEpoch) return null;
+        ag = sigmaAgentFor(side, cfg);
+        a = await ag.choose(position, options);
+      }
       if (epoch !== aiEpoch) return null;
       lastInfo = ag.lastSims || !ag.lastTactic
         ? `Sigma · ${ag.lastSims}/${cfg.sims} simulations · ${sigmaBatch ? "GPU" : "CPU"} · ${Math.round(performance.now() - t0)} ms`

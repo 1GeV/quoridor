@@ -8,8 +8,8 @@
     },
     {
       "path": "index.html",
-      "bytes": 19138,
-      "sha256": "6f103f49cdd42b762000f74572e11d2e417ee122aab75c4061b0b55c06181075"
+      "bytes": 19387,
+      "sha256": "312f0fd9e7555c89e8d780dbea055c5cac4ec8f7e861d675ee148819e8caef5a"
     },
     {
       "path": "guide.html",
@@ -83,8 +83,8 @@
     },
     {
       "path": "app.js",
-      "bytes": 94480,
-      "sha256": "9666cfd381d852a6cec42dbbcf85775adbd38d4c546a1488f1ab1ab58f33bcdf"
+      "bytes": 97192,
+      "sha256": "b86a29ce18d000ea7da822961007f3e21919bfeebce8e58992e132e3ef19c4db"
     },
     {
       "path": "rules.js",
@@ -93,13 +93,23 @@
     },
     {
       "path": "sigma.js",
-      "bytes": 18307,
-      "sha256": "d0a0435b513387e1ccd841b386637ae67a55eba5f232cdaa32781a7191e40733"
+      "bytes": 18091,
+      "sha256": "70427da3a9ad12ca4bf3f1b0d09f21e0fde302a93048cfc04c9018638a987e77"
+    },
+    {
+      "path": "sigma-gpu.js",
+      "bytes": 1865,
+      "sha256": "cc0a65605b6db44748f0883097561fbf460d557b41badb522355eb6d7d2e8261"
+    },
+    {
+      "path": "sigma-gpu-worker.js",
+      "bytes": 1341,
+      "sha256": "707a25d774e2668b26128e80da40c5492d625d277b2d0da9c90588fc73a742c6"
     },
     {
       "path": "startup.js",
-      "bytes": 1562,
-      "sha256": "2a6b6540ccbfa088cbdeb34a20e48eb4f6e72230f531ee5bed76e296a8fa0331"
+      "bytes": 1578,
+      "sha256": "3c6e0ca802a2f996da900273d08c2154871c163abbd30a895b05193e356f5818"
     },
     {
       "path": "isolation-sw.js",
@@ -118,8 +128,8 @@
     },
     {
       "path": "claustrophobia.js",
-      "bytes": 4592,
-      "sha256": "2029a0cb90f50524ac57b4b7323fbe898ad4cf212776947a6ea8dcc978e91b7c"
+      "bytes": 4608,
+      "sha256": "03d0e06f6f640dc798d122a420baae6e50950b48fb456d7a8f70ad02b9362351"
     },
     {
       "path": "detour.js",

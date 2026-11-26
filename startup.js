@@ -29,4 +29,4 @@ async function enableThreads() {
   }
 }
 await enableThreads();
-await import("./app.js?v=room-rematch");
+await import("./app.js?v=sigma-runtime");

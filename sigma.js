@@ -141,7 +141,6 @@ export async function loadModelSession(url, ortLib, opts = {}) {
       : 1;
     // Keep CPU inference off the UI thread so thinking limits and controls can run.
     ort.env.wasm.proxy = !(opts.executionProviders || []).includes("webgpu");
-    if (ort.env.webgpu) ort.env.webgpu.powerPreference = "high-performance";
   } else {
     ort.env.wasm.numThreads = 1;
   }
@@ -161,13 +160,23 @@ export async function loadModelSession(url, ortLib, opts = {}) {
 }
 
 export class SigmaNet {
-  constructor(session) {
+  constructor(session, infer) {
     this.session = session;
-    this.inputName = session.inputNames ? session.inputNames[0] : session.getInputs()[0].name;
+    this.infer = infer;
   }
 
   static async load(url, ortLib, opts = {}) {
-    return new SigmaNet(await loadModelSession(url, ortLib, opts));
+    const ort = ortLib || globalThis.ort;
+    const session = await loadModelSession(url, ort, opts);
+    const inputName = session.inputNames[0];
+    return new SigmaNet(session, async (data, batch) => {
+      const input = new ort.Tensor("float32", data, [batch, 8, 9, 9]);
+      const out = await session.run({ [inputName]: input });
+      return {
+        logits: (out.policy ?? out[session.outputNames[0]]).data,
+        values: (out.value ?? out[session.outputNames[1]]).data,
+      };
+    });
   }
 
   static cdnPath() {
@@ -175,12 +184,8 @@ export class SigmaNet {
   }
 
   async raw(state) {
-    const ort = globalThis.ort;
-    const input = new ort.Tensor("float32", encode(state), [1, 8, 9, 9]);
-    const out = await this.session.run({ [this.inputName]: input });
-    const logits = Array.from(out.policy ? out.policy.data : Object.values(out)[0].data);
-    const value = Number((out.value ? out.value.data : Object.values(out)[1].data)[0]);
-    return [logits, value];
+    const { logits, values } = await this.infer(encode(state), 1);
+    return [Array.from(logits), Number(values[0])];
   }
 
   async evaluate(state) {
@@ -192,14 +197,10 @@ export class SigmaNet {
   // roughly 3 ms per position instead of 30+, which is what makes 256+ sims
   // playable in a browser.
   async rawBatch(states) {
-    const ort = globalThis.ort;
     const n = states.length;
     const data = new Float32Array(n * 8 * 81);
     for (let i = 0; i < n; i++) data.set(encode(states[i]), i * 648);
-    const input = new ort.Tensor("float32", data, [n, 8, 9, 9]);
-    const out = await this.session.run({ [this.inputName]: input });
-    const pol = out.policy ? out.policy.data : Object.values(out)[0].data;
-    const val = out.value ? out.value.data : Object.values(out)[1].data;
+    const { logits: pol, values: val } = await this.infer(data, n);
     return states.map((s, i) => ({
       logits: pol.subarray(i * 136, (i + 1) * 136),
       value: Number(val[i]),
