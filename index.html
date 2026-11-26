@@ -37,7 +37,7 @@
   } catch (e) { document.documentElement.dataset.theme = "light"; }
 })();
 </script>
-<link rel="stylesheet" href="./board.css?v=room-label-layout">
+<link rel="stylesheet" href="./board.css?v=room-footer-layout">
 </head>
 <body>
 <header class="topbar">
@@ -268,12 +268,19 @@
       </section>
 
       <div class="foot">
-        <a href="./guide.html">Game Guide</a> · <a href="./privacy.html">Privacy &amp; data</a> · <a href="./terms.html">Terms</a> · <a href="./NOTICE.md">Third-party notices</a> · <a href="https://github.com/1GeV/quoridor" target="_blank" rel="noopener noreferrer">Source</a><br>
+        <nav class="foot-links" aria-label="Game information">
+          <a href="./guide.html">Guide</a>
+          <a href="./privacy.html">Privacy</a>
+          <a href="./terms.html">Terms</a>
+          <a href="./NOTICE.md">Notices</a>
+          <a href="https://github.com/1GeV/quoridor" target="_blank" rel="noopener noreferrer">Source</a>
+        </nav>
         <button class="link" type="button" id="btnClearAIFiles">Clear AI downloads</button>
         <span id="aiFilesFeedback" role="status"></span><br>
         <button class="link" type="button" id="btnClearLocal">Clear this app's local data</button><br>
         Quoridor is a trademark of Gigamic; this is an unaffiliated rules implementation.<br>
-        AI: <a href="https://github.com/bartolomeo3000/SigmaQuoridor" target="_blank" rel="noopener">SigmaQuoridor</a> and <a href="https://github.com/Plaaasma/Claustrophobia" target="_blank" rel="noopener">Claustrophobia</a> weights. Search by <a href="https://github.com/EmyoTyyy/detour" target="_blank" rel="noopener">Detour</a> and inference by <a href="https://onnxruntime.ai/" target="_blank" rel="noopener">ONNX Runtime Web</a>. Rooms by <a href="https://peerjs.com/" target="_blank" rel="noopener">PeerJS</a>. Project code is MIT licensed.
+        AI weights: <a href="https://github.com/bartolomeo3000/SigmaQuoridor" target="_blank" rel="noopener">SigmaQuoridor</a> and <a href="https://github.com/Plaaasma/Claustrophobia" target="_blank" rel="noopener">Claustrophobia</a>. Search: <a href="https://github.com/EmyoTyyy/detour" target="_blank" rel="noopener">Detour</a>. Inference: <a href="https://onnxruntime.ai/" target="_blank" rel="noopener">ONNX Runtime Web</a>.<br>
+        <a href="./privacy.html#rooms">Room services</a>: Cloudflare Workers and ntfy.sh for relay rooms; <a href="https://peerjs.com/" target="_blank" rel="noopener">PeerJS</a> / WebRTC for Direct rooms. Original project code is <a href="./LICENSE">MIT licensed</a>.
       </div>
     </div>
   </aside>

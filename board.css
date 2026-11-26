@@ -418,6 +418,8 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .foot { color: var(--faint); font-size: 13px; line-height: 1.6; padding: 2px 4px 0; }
 .foot a { color: var(--muted); }
+.foot-links { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-bottom: 4px; }
+.foot-links a { white-space: nowrap; }
 
 @media (max-width: 1040px) {
   .topbar { padding: 24px 20px 0; grid-template-columns: 1fr; gap: 10px; }
