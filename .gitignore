@@ -11,3 +11,6 @@ tests/sigma_ref.json.bak
 /legal.js
 /.env*
 !/.env.example
+/relay/.wrangler/
+/relay/.dev.vars*
+/relay/.env*

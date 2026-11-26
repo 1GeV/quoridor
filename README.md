@@ -1,9 +1,9 @@
 # Quoridor 9x9 — web build
 
-A self-contained Quoridor board with several AI engines, local two-player mode and
-peer-to-peer rooms. No framework, no build step, no server state: the whole app
-is a collection of ES modules plus locally executed ONNX models. This is a public
-beta; no claim is made that its AI is stronger than Barricade's main-site Expert.
+A Quoridor board with several AI engines, local two-player mode and online rooms.
+The browser runs the ONNX models locally. Online rooms use a relay or a
+peer-to-peer connection. This is a public beta; no claim is made that its AI is
+stronger than Barricade's main-site Expert.
 
 Play at **https://1gev.github.io/quoridor/**.
 
@@ -108,11 +108,30 @@ within its time budget, normal search takes over.
   Leaving and joining again with the same code restores the game while the host
   has the room open. The guest can request a rematch and the host decides when
   to start it.
-* Relay room moves and synchronization messages are encrypted in the browser
-  and forwarded by ntfy.sh on its limited free tier. If a room disconnects,
-  rejoin with the invitation while the host keeps the room open.
+* Relay room moves and synchronization messages are encrypted in the browser.
+  New rooms use the Cloudflare relay. Existing R-
+  invitations still use ntfy.sh. If a room disconnects, rejoin with the same
+  invitation while the host keeps the page open.
 * Direct rooms use a WebRTC data channel. PeerJS is MIT licensed and vendored in
   `vendor/peerjs.min.js`.
+
+To deploy the optional Cloudflare relay, run the following from the repository
+root with Wrangler and a Workers Free account.
+
+```sh
+npx wrangler deploy --config relay/wrangler.jsonc
+```
+
+Deploy `relay/router.js` as `_worker.js` at the root of a Cloudflare Pages
+Direct Upload project. Add a Durable Object binding named `ROOMS` to the
+Worker's `Room` namespace, set `ALLOWED_ORIGINS` to the game's browser
+origin, and redeploy Pages to apply the settings. Set the Pages HTTPS URL in
+`room-config.js` and rebuild the game site. An empty URL makes ntfy the
+default for new rooms on a fork without a Cloudflare deployment.
+
+The relay keeps two live sockets per room and forwards encrypted frames. The
+host's browser keeps the board. A guest can rejoin with the same invitation
+after a disconnect. GitHub Pages continues to serve the game itself.
 
 ## External AI cost control and privacy
 

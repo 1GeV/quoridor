@@ -1,0 +1,13 @@
+{
+  "name": "quoridor-room-relay",
+  "main": "worker.js",
+  "compatibility_date": "2026-01-15",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": { "ALLOWED_ORIGINS": "https://1gev.github.io" },
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+}
