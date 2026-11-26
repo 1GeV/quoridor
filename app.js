@@ -8,6 +8,8 @@ import { ClaustrophobiaNet } from "./claustrophobia.js?v=sigma-runtime";
 import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS, EXTERNAL_EFFORTS } from "./external-ai.js";
 import { positionKey } from "./detour.js";
 import { clearAIAssets, pruneAIAssets, subscribeAIAssets } from "./ai-assets.js";
+import { ROOM_WORKER_URL } from "./room-config.js";
+import { isRelayCode, newRelayCode, ROOM_INVITE } from "./room-crypto.js";
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -1943,9 +1945,8 @@ async function relayRoom(joinCode) {
   status(host ? "Creating a room…" : "Joining the room…", "Connecting to the room relay.");
   roomMsg("Connecting to the room relay.");
   try {
-    const { newRelayCode, openRelayRoom } = await import("./room-relay.js?v=room-rate-limit");
-    const code = joinCode || "R-" + newRelayCode();
-    const room = await openRelayRoom(code, host, {
+    const code = joinCode || (ROOM_WORKER_URL ? "W-" : "R-") + newRelayCode();
+    const options = {
       signal: controller.signal,
       onGuest: bindConn,
       onStatus(online, error) {
@@ -1956,7 +1957,16 @@ async function relayRoom(joinCode) {
           : "Room relay disconnected. Rejoin with the same invitation.");
         else if (host && roomCode === code && !conn) roomMsg("Share the invitation link with one opponent.");
       },
-    });
+    };
+    let room;
+    if (code.startsWith("W-")) {
+      if (!ROOM_WORKER_URL) throw new Error("This page does not have a WebSocket room relay configured.");
+      const { openSocketRoom } = await import("./room-websocket.js?v=websocket-room");
+      room = await openSocketRoom(ROOM_WORKER_URL, code, host, options);
+    } else {
+      const { openRelayRoom } = await import("./room-relay.js?v=websocket-room");
+      room = await openRelayRoom(code, host, options);
+    }
     if (relayController !== controller) return;
     roomCode = code;
     if (!host) { bindConn(room.join()); return; }
@@ -1982,21 +1992,18 @@ function roomInvite(code) {
 
 function codeFromInput(text) {
   const input = text.trim();
-  try { return new URL(input).hash.match(/^#room=(R-[\w-]{22})$/)?.[1] || input; }
+  try { return new URL(input).hash.match(ROOM_INVITE)?.[1] || input; }
   catch { return input; }
 }
 
-async function joinFromInput() {
+function joinFromInput() {
   const code = codeFromInput(ui.joinCode.value);
-  if (!code.startsWith("R-")) { void joinRoom(); return; }
-  try {
-    const { isRelayCode } = await import("./room-relay.js?v=room-rate-limit");
-    if (mode !== "room") return;
-    if (isRelayCode(code)) void relayRoom(code);
-    else roomMsg("Paste the full invitation link or room code.");
-  } catch {
-    if (mode === "room") roomMsg("Could not load the room connection. Reload and try again.");
-  }
+  if (isRelayCode(code)) {
+    ui.joinCode.value = code;
+    void relayRoom(code);
+  } else if (code.startsWith("R-") || code.startsWith("W-")) {
+    roomMsg("Paste the full invitation link or room code.");
+  } else void joinRoom();
 }
 
 function waitOpen(p) {
@@ -2439,7 +2446,7 @@ if ($("btnDirectRoom")) {
   ui.btnCreate.addEventListener("click", () => relayRoom());
   $("btnDirectRoom").addEventListener("click", createRoom);
   $("btnCopyRoom").addEventListener("click", async () => {
-    if (!roomCode?.startsWith("R-")) return;
+    if (!roomCode || !isRelayCode(roomCode)) return;
     try {
       await navigator.clipboard.writeText(roomInvite(roomCode));
       roomMsg("Invitation link copied.");
@@ -2500,7 +2507,7 @@ function boot() {
   updateViewFlip();
   layout();
   setMode(["ai", "hotseat", "ai_ai"].includes(mode) ? mode : "ai");
-  const invitation = location.hash.match(/^#room=(R-[\w-]{22})$/)?.[1];
+  const invitation = location.hash.match(ROOM_INVITE)?.[1];
   if (invitation) {
     setMode("room");
     ui.joinCode.value = invitation;

@@ -1,4 +1,6 @@
 // Encrypted room messages over ntfy's anonymous HTTPS publish/subscribe API.
+import { base64, unbase64, newRelayCode } from "./room-crypto.js";
+export { isRelayCode, newRelayCode } from "./room-crypto.js";
 const RELAY = "https://ntfy.sh/";
 const encoder = new TextEncoder(), decoder = new TextDecoder();
 const CHUNK_BYTES = 1800;
@@ -6,19 +8,6 @@ const MAX_MESSAGE_BYTES = 256 * 1024;
 const RETRY_DELAYS = [0, 250, 900];
 const RATE_LIMIT_DELAY = 6000;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function base64(bytes) {
-  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-}
-function unbase64(text) {
-  return Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (letter) => letter.charCodeAt(0));
-}
-export function newRelayCode() {
-  return base64(crypto.getRandomValues(new Uint8Array(16)));
-}
-export function isRelayCode(code) {
-  return /^R-[\w-]{22}$/.test(code) && base64(unbase64(code.slice(2))) === code.slice(2);
-}
 
 function canRetryRateLimit(response, code) {
   const retryAfter = response.headers.get("Retry-After");

@@ -158,7 +158,7 @@
           <div class="roomcode" id="roomCode" style="display:none"></div>
           <button class="btn" id="btnCopyRoom" hidden>Copy invitation link</button>
           <div class="roommsg" id="roomMsg">The host keeps the board. The guest plays Blue.</div>
-          <p class="note">Rooms use the ntfy HTTPS relay by default. Direct rooms use PeerJS and may reveal your IP address to your opponent. <a href="./privacy.html#rooms">Room privacy</a></p>
+          <p class="note">Online rooms relay encrypted game messages. Direct rooms may reveal your IP address to your opponent. <a href="./privacy.html#rooms">Room privacy</a></p>
         </div>
       </section>
 
@@ -298,6 +298,6 @@
 </dialog>
 
 <script src="./vendor/peerjs.min.js"></script>
-<script type="module" src="./startup.js?v=room-rate-limit"></script>
+<script type="module" src="./startup.js?v=websocket-room"></script>
 </body>
 </html>
