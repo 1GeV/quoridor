@@ -33,9 +33,15 @@ The original code written for this project is MIT licensed (see `LICENSE`). Bund
 - Source: https://github.com/peers/peerjs
 - Copyright: the PeerJS authors
 - Licence: MIT. See `vendor/peerjs/LICENSE` and `vendor/peerjs/licenses/` for its bundled dependencies.
-- What we use: the minified browser build, vendored so room play works without a
-  third-party CDN. The public PeerJS broker exchanges WebRTC signalling information.
-  Game messages use a WebRTC data channel, which can use a relay when needed.
+- What we use: the minified browser build, vendored without a third-party CDN.
+  Only Direct rooms use PeerJS for WebRTC signalling and data channels.
+
+## Hosted room services (not bundled libraries)
+
+- `W-` invitations use this project's Cloudflare Workers WebSocket relay.
+- `R-` invitations use the public ntfy.sh HTTPS relay.
+- Direct rooms use public PeerJS signalling and WebRTC connection services.
+- See `privacy.html#rooms` for the data exchanged with these services.
 
 ## Detour search engine
 
