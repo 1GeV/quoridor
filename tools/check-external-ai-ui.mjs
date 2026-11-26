@@ -492,7 +492,7 @@ try {
   });
   assert.equal(await page.run(() => quoridor.state().last), 116);
   assert.equal(await page.run(() => roomChannel.sent.at(-1).a), 116);
-  await page.run(() => document.querySelector("#btnCreate").click());
+  await page.run(() => document.querySelector("#btnDirectRoom").click());
   await page.wait(() => document.querySelector("#status").textContent === "Waiting for an opponent");
   assert.deepEqual(await roomRows(), ["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
   console.log("PASS: room creation and joining wait for signalling; room moves and orientation work");
@@ -501,7 +501,7 @@ try {
     window.roomPeerStalls = true;
     window.normalRoomTestTimeout = window.setTimeout;
     window.setTimeout = (callback, delay, ...args) => normalRoomTestTimeout(callback, delay === 12000 ? 30 : delay, ...args);
-    document.querySelector("#btnCreate").click();
+    document.querySelector("#btnDirectRoom").click();
   });
   await page.wait(() => document.querySelector("#status").textContent === "Could not create a room");
   assert.equal(await page.run(() => document.querySelector("#roomMsg").textContent), "Room server did not respond");
@@ -510,7 +510,7 @@ try {
   await page.run(() => {
     window.setTimeout = normalRoomTestTimeout;
     window.roomPeerStalls = false;
-    document.querySelector("#btnCreate").click();
+    document.querySelector("#btnDirectRoom").click();
   });
   await page.wait(() => document.querySelector("#status").textContent === "Waiting for an opponent");
   console.log("PASS: stalled room creation times out, releases signalling listeners, and can be retried");

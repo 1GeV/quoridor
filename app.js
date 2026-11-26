@@ -1929,6 +1929,75 @@ function roomMsg(text) { ui.roomMsg.textContent = text; }
 function peerAvailable() { return typeof window.Peer === "function"; }
 const ROOM_TIMEOUT = 12_000;
 let roomTimer = null;
+let relayController = null;
+
+async function relayRoom(joinCode) {
+  resetPeer();
+  const controller = relayController = new AbortController();
+  const host = !joinCode;
+  roomRole = host ? "host" : "guest";
+  mySide = host ? 0 : 1;
+  if (host) newGame({ broadcast: false });
+  else { updateViewFlip(); render(); }
+  const copy = $("btnCopyRoom");
+  status(host ? "Creating a room…" : "Joining the room…", "Connecting to the room relay.");
+  roomMsg("Connecting to the room relay.");
+  try {
+    const { newRelayCode, openRelayRoom } = await import("./room-relay.js?v=room-https");
+    const code = joinCode || "R-" + newRelayCode();
+    const room = await openRelayRoom(code, host, {
+      signal: controller.signal,
+      onGuest: bindConn,
+      onStatus(online, error) {
+        if (controller.signal.aborted || relayController !== controller) return;
+        if (error) roomMsg(error.message);
+        else if (roomCode === code && !online) roomMsg(host
+          ? "Room relay disconnected. Waiting for it to reconnect…"
+          : "Room relay disconnected. Rejoin with the same invitation.");
+        else if (host && roomCode === code && !conn) roomMsg("Share the invitation link with one opponent.");
+      },
+    });
+    if (relayController !== controller) return;
+    roomCode = code;
+    if (!host) { bindConn(room.join()); return; }
+    ui.roomCode.textContent = code;
+    ui.roomCode.classList.add("relay-code");
+    ui.roomCode.style.display = "block";
+    copy.hidden = false;
+    roomMsg("Share the invitation link with one opponent.");
+    status("Waiting for an opponent", "Keep this page open.");
+  } catch (error) {
+    if (relayController !== controller) return;
+    resetPeer();
+    status(host ? "Could not create a room" : "Could not join the room", "Try again or start a Direct room with your opponent.");
+    roomMsg(error.message || String(error));
+  }
+}
+
+function roomInvite(code) {
+  const url = new URL(location.href);
+  url.hash = "room=" + code;
+  return url.href;
+}
+
+function codeFromInput(text) {
+  const input = text.trim();
+  try { return new URL(input).hash.match(/^#room=(R-[\w-]{22})$/)?.[1] || input; }
+  catch { return input; }
+}
+
+async function joinFromInput() {
+  const code = codeFromInput(ui.joinCode.value);
+  if (!code.startsWith("R-")) { void joinRoom(); return; }
+  try {
+    const { isRelayCode } = await import("./room-relay.js?v=room-https");
+    if (mode !== "room") return;
+    if (isRelayCode(code)) void relayRoom(code);
+    else roomMsg("Paste the full invitation link or room code.");
+  } catch {
+    if (mode === "room") roomMsg("Could not load the room connection. Reload and try again.");
+  }
+}
 
 function waitOpen(p) {
   if (p.open) return Promise.resolve();
@@ -2031,7 +2100,7 @@ function bindConn(channel) {
     if (!state.terminal) status("Room disconnected", reconnect);
     roomMsg(`${text} ${reconnect}`);
   };
-  roomTimer = setTimeout(() => fail("The peer connection timed out."), ROOM_TIMEOUT);
+  roomTimer = setTimeout(() => fail(relayController ? "The host did not respond through the room relay." : "The peer connection timed out."), ROOM_TIMEOUT);
   const onOpen = () => {
     if (conn !== channel || roomRole !== "host") return;
     clearTimeout(roomTimer);
@@ -2111,10 +2180,15 @@ function resetPeer() {
   roomReady = false;
   roomRematchPending = false;
   roomRole = null;
+  const relay = relayController;
+  relayController = null;
   updateViewFlip();
   channel?.close();
   p?.destroy();
+  relay?.abort();
   ui.roomCode.style.display = "none";
+  ui.roomCode.classList.remove("relay-code");
+  if ($("btnCopyRoom")) $("btnCopyRoom").hidden = true;
 }
 function randomCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -2361,9 +2435,23 @@ ui.chatInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendCha
 for (const b of ui.seg.querySelectorAll("button")) {
   b.addEventListener("click", () => { if (b.dataset.mode !== mode) setMode(b.dataset.mode); });
 }
-ui.btnCreate.addEventListener("click", createRoom);
-ui.btnJoin.addEventListener("click", joinRoom);
-ui.joinCode.addEventListener("keydown", (e) => { if (e.key === "Enter") joinRoom(); });
+if ($("btnDirectRoom")) {
+  ui.btnCreate.addEventListener("click", () => relayRoom());
+  $("btnDirectRoom").addEventListener("click", createRoom);
+  $("btnCopyRoom").addEventListener("click", async () => {
+    if (!roomCode?.startsWith("R-")) return;
+    try {
+      await navigator.clipboard.writeText(roomInvite(roomCode));
+      roomMsg("Invitation link copied.");
+    } catch {
+      roomMsg("Copy the room code shown above.");
+    }
+  });
+} else {
+  ui.btnCreate.addEventListener("click", createRoom);
+}
+ui.btnJoin.addEventListener("click", joinFromInput);
+ui.joinCode.addEventListener("keydown", (e) => { if (e.key === "Enter") joinFromInput(); });
 window.addEventListener("resize", layout);
 window.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName || "").toLowerCase();
@@ -2412,5 +2500,13 @@ function boot() {
   updateViewFlip();
   layout();
   setMode(["ai", "hotseat", "ai_ai"].includes(mode) ? mode : "ai");
+  const invitation = location.hash.match(/^#room=(R-[\w-]{22})$/)?.[1];
+  if (invitation) {
+    setMode("room");
+    ui.joinCode.value = invitation;
+    const url = new URL(location.href);
+    url.hash = "";
+    try { window.history.replaceState(null, "", url); } catch {}
+  }
 }
 boot();

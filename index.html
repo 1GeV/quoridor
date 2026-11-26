@@ -37,7 +37,7 @@
   } catch (e) { document.documentElement.dataset.theme = "light"; }
 })();
 </script>
-<link rel="stylesheet" href="./board.css?v=20261126">
+<link rel="stylesheet" href="./board.css?v=room-https">
 </head>
 <body>
 <header class="topbar">
@@ -147,14 +147,18 @@
         </div>
         <label class="check" id="bottomLabel"><input type="checkbox" id="viewBottom" checked> I always play from the bottom</label>
         <div class="room" id="roomPanel">
-          <button class="btn primary" id="btnCreate">Create room</button>
+          <div class="btn-grid">
+            <button class="btn primary" id="btnCreate">Create room</button>
+            <button class="btn" id="btnDirectRoom" title="Create a four-character PeerJS room">Direct room</button>
+          </div>
           <div class="btn-grid" style="grid-template-columns:1fr 88px">
-            <input id="joinCode" maxlength="4" placeholder="CODE" aria-label="room code">
+            <input id="joinCode" maxlength="512" placeholder="Invitation link or code" aria-label="Room invitation link or code" autocapitalize="off" spellcheck="false">
             <button class="btn" id="btnJoin">Join</button>
           </div>
           <div class="roomcode" id="roomCode" style="display:none"></div>
-          <div class="roommsg" id="roomMsg">Peer-to-peer: the host keeps the board; the guest plays blue.</div>
-          <p class="note">Creating or joining contacts PeerJS and connection services. Your opponent may learn your IP address. Rooms exchange game actions only; there is no player chat. <a href="./privacy.html#rooms">Room privacy</a></p>
+          <button class="btn" id="btnCopyRoom" hidden>Copy invitation link</button>
+          <div class="roommsg" id="roomMsg">The host keeps the board. The guest plays Blue.</div>
+          <p class="note">Rooms use the ntfy HTTPS relay by default. Direct rooms use PeerJS and may reveal your IP address to your opponent. <a href="./privacy.html#rooms">Room privacy</a></p>
         </div>
       </section>
 
@@ -294,6 +298,6 @@
 </dialog>
 
 <script src="./vendor/peerjs.min.js"></script>
-<script type="module" src="./startup.js?v=sigma-runtime"></script>
+<script type="module" src="./startup.js?v=room-https"></script>
 </body>
 </html>

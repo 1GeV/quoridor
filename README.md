@@ -99,22 +99,20 @@ within its time budget, normal search takes over.
 
 ## Rooms
 
-* **Create room** registers a peer id `q9-<CODE>` on the public PeerJS broker and
-  waits. The code (for example `AVK7`) is shown in the panel.
-* **Join** connects to that id; the guest is blue.
+* **Create room** opens an HTTPS relay room. Share the invitation link with one
+  opponent. They open it and select **Join**. The guest plays Blue.
+* **Direct room** uses the public PeerJS broker and a four-character code, for
+  example `AVK7`. This option needs a usable WebRTC connection between the browsers.
 * Both browsers check move legality, whose turn it is and the move number.
   The host keeps the move list and sends it to each guest after connecting.
   Leaving and joining again with the same code restores the game while the host
   has the room open. The guest can request a rematch and the host decides when
   to start it.
-* Traffic is a WebRTC data channel between the two browsers; no game data
-  reaches this project's host. PeerJS is MIT licensed and vendored in
+* Relay room moves and synchronization messages are encrypted in the browser
+  and forwarded by ntfy.sh on its limited free tier. If a room disconnects,
+  rejoin with the invitation while the host keeps the room open.
+* Direct rooms use a WebRTC data channel. PeerJS is MIT licensed and vendored in
   `vendor/peerjs.min.js`.
-
-Known limits: both players need internet access to the PeerJS broker, and a
-very restrictive NAT can still block the direct connection (a TURN server would
-be needed). If the broker is unreachable, the panel says so and local modes keep
-working.
 
 ## External AI cost control and privacy
 
