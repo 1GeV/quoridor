@@ -8,13 +8,13 @@
     },
     {
       "path": "index.html",
-      "bytes": 19387,
-      "sha256": "312f0fd9e7555c89e8d780dbea055c5cac4ec8f7e861d675ee148819e8caef5a"
+      "bytes": 19663,
+      "sha256": "fe00da3e55df87776710c76fc44921cd38f44e8ca308410be56dea37f4b87797"
     },
     {
       "path": "guide.html",
-      "bytes": 10591,
-      "sha256": "0eb0956b93d4e52ab4ae4cb51f397ef64d025fa4b0832aa4a27045e28501f287"
+      "bytes": 11021,
+      "sha256": "087203e6c10ae95aa21149b637fa884fae5fecb330f2a317ea5e3f92100b0984"
     },
     {
       "path": "robots.txt",
@@ -78,13 +78,13 @@
     },
     {
       "path": "board.css",
-      "bytes": 23274,
-      "sha256": "a8006dbe651b7dec1819892cf86463e300c7751f77a4c8708c3cebe239ff5d62"
+      "bytes": 23645,
+      "sha256": "9fe65bb71f5027a43b32f259db5442f452974c077193dbda76ee410c00be6bbc"
     },
     {
       "path": "app.js",
-      "bytes": 97192,
-      "sha256": "b86a29ce18d000ea7da822961007f3e21919bfeebce8e58992e132e3ef19c4db"
+      "bytes": 100849,
+      "sha256": "57f603373a0532c214114b13c487835572d1845656e4cf6968f889daf8080f55"
     },
     {
       "path": "rules.js",
@@ -107,9 +107,14 @@
       "sha256": "707a25d774e2668b26128e80da40c5492d625d277b2d0da9c90588fc73a742c6"
     },
     {
+      "path": "room-relay.js",
+      "bytes": 7109,
+      "sha256": "b722c2092773ace0d748d829ebd201131860db6736c025f52757070dd3c04b94"
+    },
+    {
       "path": "startup.js",
-      "bytes": 1578,
-      "sha256": "3c6e0ca802a2f996da900273d08c2154871c163abbd30a895b05193e356f5818"
+      "bytes": 1575,
+      "sha256": "5def4af85373d0b0bcb6e7f7068ad9c45187bc0696d42b5a4612651c41f14199"
     },
     {
       "path": "isolation-sw.js",
@@ -163,13 +168,13 @@
     },
     {
       "path": "privacy.html",
-      "bytes": 7835,
-      "sha256": "bfbad5e1c3d903008135a39d19d12aac6bd73b46e1fc167e6feb31db4dee828c"
+      "bytes": 8113,
+      "sha256": "24bb026c4a156d45235fc57921119f8776d57aee783fd6065ca33854111f53da"
     },
     {
       "path": "terms.html",
-      "bytes": 3299,
-      "sha256": "59ed0387dafcba18835d60573a3b3146662b66c0cabafe9ad58f86525742c848"
+      "bytes": 3663,
+      "sha256": "ba45283ad57318f583bd80359a9e35b444fa2b6d80a3f50a78a02fe9b2072151"
     },
     {
       "path": "legal.css",
