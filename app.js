@@ -1,10 +1,10 @@
 // Quoridor 9x9 browser UI: board, AI, AI-vs-AI autoplay, replay and saved games.
 // Static site, no paid services: ONNX Runtime Web and PeerJS are vendored.
 import { State, actionStr, A_H, A_V, N_MOVES } from "./rules.js";
-import { SigmaNet, SigmaAgent, SigmaBatchAgent } from "./sigma.js?v=sigma-runtime";
+import { SigmaNet, SigmaAgent, SigmaBatchAgent } from "./sigma.js?v=sigma-legal-sidestep";
 import { searchGuided } from "./guided.js";
 import { openSigmaGpu } from "./sigma-gpu.js";
-import { ClaustrophobiaNet } from "./claustrophobia.js?v=sigma-runtime";
+import { ClaustrophobiaNet } from "./claustrophobia.js?v=sigma-legal-sidestep";
 import { completeExternal, validExtBase, extEndpoint, EXTERNAL_PROTOCOLS, EXTERNAL_EFFORTS } from "./external-ai.js";
 import { positionKey } from "./detour.js";
 import { clearAIAssets, pruneAIAssets, subscribeAIAssets } from "./ai-assets.js";

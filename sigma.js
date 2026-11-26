@@ -6,7 +6,7 @@ export { raceValue } from "./endgame.js";
 // Sigma network wrapper for the browser (onnxruntime-web, wasm backend).
 // The encoder mirrors quoridor/sigma.py exactly: the net always sees the board
 // from the mover's side, mover advancing toward canonical row 8.
-import { State, N, A_H, A_V, N_MOVES, stepOk } from "./rules.js";
+import { State, N, A_H, A_V, N_MOVES } from "./rules.js";
 
 export const CANON_DIRS = [[0, 1], [0, -1], [-1, 0], [1, 0], [-1, 1], [1, 1], [-1, -1], [1, -1]];
 const MAX_DIST = N * N - 1;
@@ -64,42 +64,17 @@ export function encode(state) {
   return x;
 }
 
-function destForDir(state, dr, dc) {
-  const p = state.turn;
-  const r = Math.floor(state.pos[p] / 9), c = state.pos[p] % 9;
-  const or = Math.floor(state.pos[1 - p] / 9), oc = state.pos[1 - p] % 9;
-  const nr = r + dr, nc = c + dc;
-  if (nr < 0 || nr > 8 || nc < 0 || nc > 8) return null;
-  if (!stepOk(state.hw, state.vw, r, c, dr, dc)) return null;
-  if (nr !== or || nc !== oc) {
-    if (dr !== 0 && dc !== 0) {
-      for (const [ar, ac, sx, sy] of [[dr, 0, 0, dc], [0, dc, dr, 0]]) {
-        const mx = r + ar, my = c + ac;
-        if (mx !== or || my !== oc) continue;
-        if (!stepOk(state.hw, state.vw, r, c, ar, ac)) continue;
-        if (!stepOk(state.hw, state.vw, mx, my, sx, sy)) continue;
-        const jr = mx + sx, jc = my + sy;
-        if (jr >= 0 && jr < 9 && jc >= 0 && jc < 9) return jr * 9 + jc;
-      }
-      return null;
-    }
-    return nr * 9 + nc;
-  }
-  const jr = nr + dr, jc = nc + dc;
-  if (jr >= 0 && jr < 9 && jc >= 0 && jc < 9 && stepOk(state.hw, state.vw, nr, nc, dr, dc)) return jr * 9 + jc;
-  return null;
-}
-
-export function actionIndex(state, a) {
+function legalActionIndex(state, a) {
   const p = state.turn;
   if (a < N_MOVES) {
-    for (let i = 0; i < CANON_DIRS.length; i++) {
-      const [dx, dy] = CANON_DIRS[i];
-      const dr = p === 0 ? -dy : dy;
-      const dc = p === 0 ? dx : dx;
-      if (destForDir(state, dr, dc) === a) return i;
-    }
-    return null;
+    // The rules engine has already checked the path, including sidesteps
+    // around a pawn. The network needs only the direction of the destination.
+    const from = state.pos[p];
+    const dx = a % N - from % N;
+    const dy = (Math.floor(a / N) - Math.floor(from / N)) * (p === 0 ? -1 : 1);
+    if (dx === 0) return dy > 0 ? 0 : 1;
+    if (dy === 0) return dx < 0 ? 2 : 3;
+    return (dy > 0 ? 4 : 6) + Number(dx > 0);
   }
   if (a < A_V) {
     const t = a - A_H, r = Math.floor(t / 8), c = t % 8;
@@ -111,13 +86,13 @@ export function actionIndex(state, a) {
   return 8 + 64 + y * 8 + c;
 }
 
+export function actionIndex(state, a) {
+  if (a < N_MOVES && !state.moves().includes(a)) return null;
+  return legalActionIndex(state, a);
+}
+
 export function legalIndexMap(state) {
-  const out = [];
-  for (const a of state.legal()) {
-    const i = actionIndex(state, a);
-    if (i !== null) out.push([i, a]);
-  }
-  return out;
+  return state.legal().map((action) => [legalActionIndex(state, action), action]);
 }
 
 let browserWasmPending = null;
