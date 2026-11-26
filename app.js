@@ -46,6 +46,8 @@ const ui = {
   btnResultClose: $("btnResultClose"),
   btnResultBoard: $("btnResultBoard"),
   btnResultNew: $("btnResultNew"),
+  btnResultSwap: $("btnResultSwap"),
+  btnResultSwapDecline: $("btnResultSwapDecline"),
   btnResultReview: $("btnResultReview"),
   btnResultUndo: $("btnResultUndo"),
   seg: $("seg"),
@@ -55,6 +57,7 @@ const ui = {
   roomCode: $("roomCode"),
   roomMsg: $("roomMsg"),
   roomRematch: $("roomRematch"),
+  roomHostSide: $("roomHostSide"),
   joinCode: $("joinCode"),
   btnCreate: $("btnCreate"),
   btnJoin: $("btnJoin"),
@@ -94,6 +97,10 @@ const ui = {
   btnClearAIFiles: $("btnClearAIFiles"),
   aiFilesFeedback: $("aiFilesFeedback"),
   btnNew: $("btnNew"),
+  btnRoomSwap: $("btnRoomSwap"),
+  btnRoomSwapDecline: $("btnRoomSwapDecline"),
+  btnRoomResign: $("btnRoomResign"),
+  roomResignDialog: $("roomResignDialog"),
   btnPlay: $("btnPlay"),
   btnUndo: $("btnUndo"),
   btnFlip: $("btnFlip"),
@@ -343,6 +350,9 @@ let cancelAlphaSearch = null;
 let peer = null, conn = null, roomCode = null, roomRole = null, roomReady = false;
 let mySide = 0;
 let roomRematchPending = false;
+let roomRequest = null, roomNotice = "", roomRound = 0, roomSeatSupport = false;
+let resignedSide = null, resignPending = false, roomRematchId = null;
+const ROOM_SEATS_VERSION = 1;
 
 function playerName(side) {
   if (state?.terminal && mode !== "replay" && finishedPlayers) return finishedPlayers[side].name;
@@ -616,6 +626,7 @@ function closeResult() {
 function updateResult() {
   const finished = state.terminal;
   const liveResult = finished && mode !== "replay";
+  if (finished && ui.roomResignDialog?.open) ui.roomResignDialog.close();
   ui.boardStatus.classList.toggle("complete", finished);
   ui.resultLabel.hidden = !finished;
   ui.btnResult.hidden = !liveResult;
@@ -631,7 +642,9 @@ function updateResult() {
   const outcome = localSide === null ? "neutral" : state.winner === localSide ? "victory" : "defeat";
   const title = localSide === null ? `${colour} wins!` : outcome === "victory" ? "You won!" : "You lost this round";
   const label = outcome === "victory" ? "Victory" : outcome === "defeat" ? "Defeat" : "Game complete";
-  const description = `${colour} reached the opposite edge first.`;
+  const description = mode === "room" && resignedSide !== null
+    ? `${resignedSide === 0 ? "Red" : "Blue"} resigned. ${colour} wins.`
+    : `${colour} reached the opposite edge first.`;
   for (const element of [ui.boardStatus, ui.resultDialog]) {
     element.dataset.winner = colour.toLowerCase();
     element.dataset.outcome = outcome;
@@ -656,7 +669,7 @@ function openResult() {
 }
 function presentResult() {
   // A room resync creates fresh state objects for the same finished game.
-  const key = `${mode}:${state.winner}:${moves.map((move) => move.a).join(",")}`;
+  const key = `${mode}:${roomRound}:${state.winner}:${resignedSide}:${moves.map((move) => move.a).join(",")}`;
   if (presentedResult === key || mode === "replay") return;
   presentedResult = key;
   openResult();
@@ -1447,7 +1460,7 @@ async function chooseFor(side, position, epoch) {
 function canPlay() {
   if (!state || state.terminal) return false;
   if (mode === "hotseat") return true;
-  if (mode === "room") return roomReady && state.turn === mySide;
+  if (mode === "room") return roomReady && !resignPending && state.turn === mySide;
   if (mode === "ai") return state.turn === humanSide;
   return false;
 }
@@ -1589,7 +1602,7 @@ function applyAction(a, { remote = false, external = null } = {}) {
   for (const ag of Object.values(sigmaAgents)) if (ag) ag.advance(a);
   if (external) noteExternalMove(engineSeat(side), moves.length, external);
   moves.push({ n: Math.floor(beforePly / 2) + 1, side, a, text: actionStr(a) });
-  if (!remote) netSend({ t: "move", a, ply: beforePly });
+  if (!remote) netSend({ t: "move", a, ply: beforePly, round: roomRound });
   if (state.terminal) { finish(); return true; }
   render();
   return false;
@@ -1607,15 +1620,12 @@ function finish() {
 }
 function newGame({ broadcast = true } = {}) {
   if (mode === "replay") { setMode("ai"); return; }
-  if (mode === "room" && roomRole === "guest" && broadcast) {
-    if (roomReady && !roomRematchPending && netSend({ t: "askRestart" })) {
-      roomRematchPending = true;
-      updateRestartButtons();
-      updateResult();
-    }
-    return;
-  }
+  if (mode === "room" && broadcast) { roomRematchClick(); return; }
   roomRematchPending = false;
+  roomRequest = null;
+  roomNotice = "";
+  resignedSide = null;
+  resignPending = false;
   cancelAi();
   resetExternalConversations();
   replayPlaying = false;
@@ -1635,7 +1645,6 @@ function newGame({ broadcast = true } = {}) {
   updateViewFlip();
   render();
   if (mode === "room") {
-    if (broadcast && roomRole === "host") syncRoom();
     if (roomReady) afterMove();
     return;
   }
@@ -1652,7 +1661,7 @@ function newGame({ broadcast = true } = {}) {
   }
 }
 function updateViewFlip() {
-  const playingBlue = mode === "ai" ? humanSide === 1 : mode === "room" && roomRole === "guest";
+  const playingBlue = mode === "ai" ? humanSide === 1 : mode === "room" && mySide === 1;
   viewFlip = playingBlue && viewBottomSetting;
   if (geo) draw();
 }
@@ -1887,7 +1896,7 @@ function setMode(next) {
     updateViewFlip();
     render();
     status("Room mode", "Create a room or join with a code.");
-    roomMsg("The host plays Red. Share the room code with one opponent.");
+    roomMsg("Use Create room for an invitation that works across most networks.");
     return;
   }
   if (next === "replay") {
@@ -1908,26 +1917,130 @@ function setMode(next) {
 }
 
 function roomRematchMessage() {
-  if (mode !== "room" || !roomRematchPending) return "";
+  if (mode !== "room") return "";
+  if (roomRequest) {
+    const { swap, outgoing, accepted, cancelling } = roomRequest;
+    return cancelling ? "Cancelling the rematch request…"
+      : outgoing ? `${swap ? "Swap rematch" : "Rematch"} requested. Waiting for your opponent.`
+      : accepted ? "Rematch accepted. Starting the new game…"
+      : swap ? "Your opponent wants a rematch with sides swapped."
+      : "Your opponent wants a rematch with the same sides.";
+  }
+  if (!roomRematchPending) return roomNotice;
   return roomRole === "guest" ? "Rematch requested. Waiting for the host." : "Your opponent requested a rematch.";
 }
 function updateRestartButtons() {
   const inRoom = mode === "room";
   const guest = inRoom && roomRole === "guest";
-  const pending = inRoom && roomRematchPending;
-  const label = pending ? (guest ? "Waiting for host…" : "Accept rematch") : guest ? "Request rematch" : "";
-  const disabled = inRoom && (!roomReady || (guest && pending));
-  ui.btnNew.textContent = label || "New game";
-  ui.btnResultNew.textContent = label || "Play again";
-  ui.btnNew.disabled = ui.btnResultNew.disabled = disabled;
-  // An older cached page may not have the inline notice yet.
+  const canRematch = inRoom && roomReady && state.terminal;
+  if (ui.btnRoomResign) {
+    ui.btnRoomResign.hidden = !(inRoom && roomReady && roomSeatSupport && !state.terminal);
+    ui.btnRoomResign.disabled = resignPending;
+    ui.btnRoomResign.textContent = resignPending ? "Resigning…" : "Resign";
+  }
+  const incoming = roomRequest && !roomRequest.outgoing && !roomRequest.accepted;
+  let label = "Request rematch";
+  if (incoming) label = roomRequest.swap ? "Accept & swap sides" : "Accept rematch";
+  else if (roomRequest || (guest && roomRematchPending)) label = "Rematch pending…";
+  else if (!roomSeatSupport && !guest) label = roomRematchPending ? "Accept rematch" : "Awaiting rematch request";
+  ui.btnNew.hidden = inRoom && !canRematch;
+  ui.btnNew.textContent = inRoom ? label : "New game";
+  ui.btnResultNew.textContent = inRoom ? label : "Play again";
+  ui.btnNew.disabled = ui.btnResultNew.disabled = inRoom && (!canRematch ||
+    (roomRequest ? !incoming : !roomSeatSupport && (guest ? roomRematchPending : !roomRematchPending)));
+  for (const button of [ui.btnRoomSwap, ui.btnResultSwap]) if (button) {
+    button.hidden = !canRematch || !roomSeatSupport || !!roomRequest;
+  }
+  for (const button of [ui.btnRoomSwapDecline, ui.btnResultSwapDecline]) if (button) {
+    button.hidden = !canRematch || !(incoming || roomRequest?.outgoing);
+    button.disabled = !!roomRequest?.cancelling;
+    button.textContent = roomRequest?.outgoing ? "Cancel request" : "Decline";
+  }
   if (ui.roomRematch) {
-    ui.roomRematch.hidden = !pending;
     const message = roomRematchMessage();
+    ui.roomRematch.hidden = !message;
     if (ui.roomRematch.textContent !== message) ui.roomRematch.textContent = message;
   }
 }
+function updateRoomRequests() {
+  updateRestartButtons();
+  updateResult();
+}
+function startRoomRematch(swap, id = null) {
+  if (roomRole !== "host" || !roomReady || !state.terminal) return;
+  if (swap) mySide = 1 - mySide;
+  roomRound++;
+  roomRematchId = id;
+  newGame({ broadcast: false });
+  syncRoom();
+  showRoomSeat();
+}
+function roomRematchClick(swap = false, revoke = false) {
+  if (mode !== "room" || !roomReady || !state.terminal) return;
+  if (!roomSeatSupport) {
+    // Legacy Red-host connections still require the guest's old-style request.
+    if (swap || revoke) return;
+    if (roomRole === "host") {
+      if (roomRematchPending) startRoomRematch(false);
+    } else if (!roomRematchPending && netSend({ t: "askRestart" })) {
+      roomRematchPending = true;
+      updateRoomRequests();
+    }
+    return;
+  }
+  if (!roomRequest && !revoke) {
+    const id = newRelayCode();
+    if (!netSend({ t: "rematchOffer", id, swap, round: roomRound })) return;
+    roomRequest = { id, swap, outgoing: true };
+  } else if (roomRequest && !roomRequest.accepted && !roomRequest.cancelling) {
+    const { id, outgoing } = roomRequest;
+    if (revoke) {
+      if (!netSend({ t: "rematchRevoke", id, round: roomRound })) return;
+      // The host might already have accepted. Keep this offer eligible for
+      // a commit until the host confirms that cancellation took effect.
+      if (outgoing && roomRole === "guest") roomRequest.cancelling = true;
+      else roomRequest = null;
+    } else if (!outgoing) {
+      if (roomRole === "host") { startRoomRematch(roomRequest.swap, id); return; }
+      if (!netSend({ t: "rematchAccept", id, round: roomRound })) return;
+      roomRequest.accepted = true;
+    }
+  }
+  roomNotice = "";
+  updateRoomRequests();
+}
+function setRoomResignation(position, side) {
+  const result = position.clone();
+  result.winner = 1 - side;
+  return result;
+}
+function hostSettleResignation(side) {
+  if (roomRole !== "host" || !roomReady) return;
+  // The host resolves a goal and a resignation that cross in transit.
+  if (!state.terminal) {
+    resignedSide = side;
+    state = setRoomResignation(state, side);
+    history[history.length - 1] = state;
+    finish();
+  }
+  syncRoom();
+}
+function canResignRoom() {
+  return mode === "room" && roomReady && roomSeatSupport && !state.terminal && !resignPending;
+}
+function resignRoom() {
+  if (!canResignRoom()) return;
+  if (roomRole === "host") {
+    hostSettleResignation(mySide);
+  } else if (netSend({ t: "resign", round: roomRound })) {
+    resignPending = true;
+    render();
+    status("Resigning…", "Waiting for the room to confirm the result.");
+  }
+}
 function roomMsg(text) { ui.roomMsg.textContent = text; }
+function selectedHostSide() { return ui.roomHostSide?.value === "1" ? 1 : 0; }
+function showRoomSeat() { roomMsg(`Connected · room ${roomCode} · you are ${mySide === 0 ? "Red" : "Blue"}.`); }
 function peerAvailable() { return typeof window.Peer === "function"; }
 const ROOM_TIMEOUT = 12_000;
 let roomTimer = null;
@@ -1938,7 +2051,7 @@ async function relayRoom(joinCode) {
   const controller = relayController = new AbortController();
   const host = !joinCode;
   roomRole = host ? "host" : "guest";
-  mySide = host ? 0 : 1;
+  mySide = host ? selectedHostSide() : 1;
   if (host) newGame({ broadcast: false });
   else { updateViewFlip(); render(); }
   const copy = $("btnCopyRoom");
@@ -2029,9 +2142,13 @@ function watchPeer(p) {
   p.on("error", (error) => {
     if (peer !== p) return;
     if (roomRole === "guest" && !roomReady && !state.terminal) {
-      status("Could not join the room", "Check the code or try again.");
+      status("Could not join the Direct room", "Check the code, or ask the host for a W- invitation.");
     }
-    roomMsg(`Room connection: ${error.message || error.type || error}`);
+    if (!roomReady) {
+      const hint = roomRole === "host" ? "Use Create room for a W- invitation instead."
+        : "Check the code, or ask the host for a W- invitation.";
+      roomMsg(`Direct room connection failed. ${hint}`);
+    }
   });
   p.on("disconnected", () => {
     if (peer !== p || p.destroyed) return;
@@ -2043,7 +2160,7 @@ async function createRoom() {
   if (!peerAvailable()) { roomMsg("Room play needs PeerJS and an internet connection."); return; }
   resetPeer();
   roomRole = "host";
-  mySide = 0;
+  mySide = selectedHostSide();
   newGame({ broadcast: false });
   status("Creating a room…", "Connecting to the room server.");
   const code = randomCode();
@@ -2064,8 +2181,8 @@ async function createRoom() {
   } catch (error) {
     if (peer !== p) return;
     resetPeer();
-    status("Could not create a room", "Try creating a room again.");
-    roomMsg(error.message || String(error));
+    status("Could not create a Direct room", "Use Create room for a W- invitation instead.");
+    roomMsg("Could not reach the Direct room server. Use Create room instead.");
   }
 }
 async function joinRoom() {
@@ -2089,32 +2206,47 @@ async function joinRoom() {
   } catch (error) {
     if (peer !== p) return;
     resetPeer();
-    status("Could not join the room", "Check the code or try again.");
-    roomMsg(error.message || String(error));
+    status("Could not join the Direct room", "Ask the host to create a room and share the W- invitation.");
+    roomMsg("Could not reach the Direct room server. Ask the host for a W- invitation.");
   }
 }
 function bindConn(channel) {
   conn = channel;
+  roomSeatSupport = false;
   const fail = (text) => {
     if (conn !== channel) return;
     clearTimeout(roomTimer);
     conn = null;
     roomReady = false;
     roomRematchPending = false;
+    roomRequest = null;
+    roomNotice = "";
+    roomSeatSupport = false;
+    resignPending = false;
+    if (ui.roomResignDialog?.open) ui.roomResignDialog.close();
     channel.close();
     render();
     const reconnect = roomRole === "host" ? `Opponent can rejoin room ${roomCode}.` : `Join room ${roomCode} again to resume.`;
-    if (!state.terminal) status("Room disconnected", reconnect);
-    roomMsg(`${text} ${reconnect}`);
+    const guidance = relayController ? reconnect : roomRole === "host"
+      ? "If Direct keeps failing, use Create room to share a W- invitation."
+      : "Ask the host to use Create room and send you a W- invitation.";
+    if (!state.terminal) status("Room disconnected", guidance);
+    roomMsg(`${text} ${guidance}`);
   };
-  roomTimer = setTimeout(() => fail(relayController ? "The host did not respond through the room relay." : "The peer connection timed out."), ROOM_TIMEOUT);
+  roomTimer = setTimeout(() => fail(roomRole === "host" && mySide === 1 && channel.open
+    ? "A Blue-host room needs an updated page. Ask your opponent to refresh and rejoin."
+    : relayController ? "The other player did not respond through the room relay."
+    : "Direct connection timed out. Some networks block peer-to-peer connections."), ROOM_TIMEOUT);
   const onOpen = () => {
-    if (conn !== channel || roomRole !== "host") return;
-    clearTimeout(roomTimer);
-    roomReady = true;
-    syncRoom();
-    roomMsg(`Connected · room ${roomCode} · you are Red.`);
-    showRoomPosition();
+    if (conn !== channel) return;
+    if (roomRole === "guest") {
+      netSend({ t: "roomHello", seats: ROOM_SEATS_VERSION });
+      return;
+    }
+    // An old guest always assumes it is Blue; don't start a Blue-host
+    // match with one. Red-host rooms retain the old sync handshake.
+    if (mySide === 1 && !roomSeatSupport) return;
+    hostReady();
   };
   channel.on("open", onOpen);
   channel.on("data", (data) => { if (conn === channel) handleNet(data); });
@@ -2122,18 +2254,46 @@ function bindConn(channel) {
   channel.on("error", (error) => fail(error.message || String(error)));
   if (channel.open) onOpen();
 }
+function hostReady() {
+  if (!roomReady) {
+    clearTimeout(roomTimer);
+    roomReady = true;
+    syncRoom();
+    showRoomSeat();
+    showRoomPosition();
+  } else {
+    updateRestartButtons();
+  }
+}
 function showRoomPosition() {
   render();
   if (state.terminal) finish();
   else afterMove();
 }
 function syncRoom() {
-  netSend({ t: "sync", moves: moves.map((move) => move.a) });
+  netSend({ t: "sync", moves: moves.map((move) => move.a), hostSide: mySide,
+    seats: ROOM_SEATS_VERSION, round: roomRound, resigned: resignedSide, rematch: roomRematchId });
 }
 function handleNet(message) {
   if (!message || typeof message !== "object" || mode !== "room") return;
+  if (message.t === "roomHello" && roomRole === "host" && message.seats === ROOM_SEATS_VERSION) {
+    roomSeatSupport = true;
+    hostReady();
+    return;
+  }
   if (message.t === "sync" && roomRole === "guest") {
     if (!Array.isArray(message.moves)) return;
+    const seatProtocol = message.seats === ROOM_SEATS_VERSION;
+    if (roomReady && roomSeatSupport && !seatProtocol) return;
+    const round = seatProtocol ? message.round : 0;
+    const hostSide = seatProtocol ? message.hostSide : 0;
+    if (!Number.isSafeInteger(round) || round < roomRound || (hostSide !== 0 && hostSide !== 1)) return;
+    if (roomReady && round === roomRound && mySide !== 1 - hostSide) return;
+    if (roomReady && seatProtocol && round > roomRound) {
+      const consent = roomRequest && (roomRequest.outgoing || roomRequest.accepted);
+      const expected = roomRequest?.swap ? 1 - mySide : mySide;
+      if (round !== roomRound + 1 || !consent || message.rematch !== roomRequest.id || 1 - hostSide !== expected) return;
+    }
     let position = State.new();
     const records = [], states = [position];
     for (const action of message.moves) {
@@ -2142,21 +2302,41 @@ function handleNet(message) {
       position = position.doAction(action);
       states.push(position);
     }
+    const resigned = seatProtocol ? message.resigned ?? null : null;
+    if (resigned !== null) {
+      if (position.terminal || (resigned !== 0 && resigned !== 1)) return;
+      position = setRoomResignation(position, resigned);
+      states[states.length - 1] = position;
+    }
+    if (!seatProtocol && roomReady && state.terminal && !position.terminal && !roomRematchPending) {
+      roomMsg("An older host page tried to restart without a request. Ask the host to refresh and create a new room.");
+      return;
+    }
     clearTimeout(roomTimer);
     roomReady = true;
-    if (!records.length) roomRematchPending = false;
+    if (round !== roomRound || !position.terminal) {
+      roomRematchPending = false;
+      roomRequest = null;
+      roomNotice = "";
+    }
+    roomRound = round;
+    resignedSide = resigned;
+    if (position.terminal) resignPending = false;
+    roomSeatSupport = seatProtocol;
+    mySide = 1 - hostSide;
     state = position;
     history = states;
     moves = records;
     lastAction = records.at(-1)?.a ?? null;
     hover = null;
     updateViewFlip();
-    roomMsg(`Connected · room ${roomCode} · you are Blue.`);
+    showRoomSeat();
     showRoomPosition();
     return;
   }
   if (!roomReady) return;
   if (message.t === "move") {
+    if (roomSeatSupport && message.round !== roomRound) return;
     if (state.terminal || state.turn === mySide || message.ply !== state.ply || !actionsFor(state).includes(message.a)) {
       if (roomRole === "host") syncRoom();
       else netSend({ t: "resync" });
@@ -2165,13 +2345,38 @@ function handleNet(message) {
     if (!applyAction(message.a, { remote: true })) afterMove();
   } else if (message.t === "resync" && roomRole === "host") {
     syncRoom();
-  } else if (message.t === "restart" && roomRole === "guest") {
+  } else if (message.t === "resign" && roomRole === "host" && roomSeatSupport && message.round === roomRound) {
+    hostSettleResignation(1 - mySide);
+  } else if (message.t === "restart" && roomRole === "guest" && !roomSeatSupport && roomRematchPending) {
     // Compatibility with a host using the earlier restart message.
     newGame({ broadcast: false });
-  } else if (message.t === "askRestart" && roomRole === "host") {
+  } else if (message.t === "askRestart" && roomRole === "host" && !roomSeatSupport && state.terminal) {
     roomRematchPending = true;
-    updateRestartButtons();
-    updateResult();
+    updateRoomRequests();
+  } else if (roomSeatSupport && state.terminal && message.round === roomRound) {
+    if (message.t === "rematchOffer" && typeof message.swap === "boolean" &&
+        typeof message.id === "string" && /^[\w-]{22}$/.test(message.id)) {
+      // If the offers cross, the host's wins. It still requires guest consent.
+      if (roomRequest && !(roomRole === "guest" && roomRequest.outgoing)) return;
+      roomRequest = { id: message.id, outgoing: false, swap: message.swap };
+      roomNotice = "";
+      updateRoomRequests();
+    } else if (message.t === "rematchRevoked" && roomRole === "guest" &&
+        roomRequest?.cancelling && message.id === roomRequest.id) {
+      roomRequest = null;
+      updateRoomRequests();
+    } else if (roomRequest && message.id === roomRequest.id) {
+      if (message.t === "rematchAccept" && roomRole === "host" && roomRequest.outgoing) {
+        startRoomRematch(roomRequest.swap, roomRequest.id);
+      } else if (message.t === "rematchRevoke") {
+        if (roomRole === "host" && !roomRequest.outgoing) {
+          netSend({ t: "rematchRevoked", id: roomRequest.id, round: roomRound });
+        }
+        roomNotice = roomRequest.outgoing ? "Your opponent declined the rematch." : "Your opponent cancelled the rematch request.";
+        roomRequest = null;
+        updateRoomRequests();
+      }
+    }
   }
 }
 function netSend(message) {
@@ -2186,7 +2391,16 @@ function resetPeer() {
   peer = null;
   roomReady = false;
   roomRematchPending = false;
+  roomRequest = null;
+  roomNotice = "";
+  roomRound = 0;
+  roomSeatSupport = false;
+  roomRematchId = null;
+  resignedSide = null;
+  resignPending = false;
+  if (ui.roomResignDialog?.open) ui.roomResignDialog.close();
   roomRole = null;
+  mySide = 0;
   const relay = relayController;
   relayController = null;
   updateViewFlip();
@@ -2313,6 +2527,16 @@ ui.btnNew.addEventListener("click", () => {
   if (mode === "room") { if (roomReady) newGame(); return; }
   newGame();
 });
+for (const button of [ui.btnRoomSwap, ui.btnResultSwap]) button?.addEventListener("click", () => roomRematchClick(true));
+for (const button of [ui.btnRoomSwapDecline, ui.btnResultSwapDecline]) button?.addEventListener("click", () => roomRematchClick(false, true));
+ui.btnRoomResign?.addEventListener("click", () => {
+  if (!canResignRoom() || !ui.roomResignDialog) return;
+  ui.roomResignDialog.returnValue = "";
+  ui.roomResignDialog.showModal();
+});
+ui.roomResignDialog?.addEventListener("close", () => {
+  if (ui.roomResignDialog.returnValue === "resign") resignRoom();
+});
 ui.btnPlay.addEventListener("click", () => {
   if (mode !== "ai_ai" || state.terminal) return;
   running = !running;
@@ -2341,7 +2565,7 @@ ui.btnResult.addEventListener("click", openResult);
 ui.btnResultClose.addEventListener("click", closeResult);
 ui.btnResultBoard.addEventListener("click", closeResult);
 ui.btnResultNew.addEventListener("click", () => {
-  if (mode === "room" && roomRole === "guest") { newGame(); return; }
+  if (mode === "room") { roomRematchClick(); return; }
   closeResult();
   newGame();
   ui.btnNew.focus({ preventScroll: true });
