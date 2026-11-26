@@ -299,6 +299,9 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .room { display: none; gap: 9px; flex-direction: column; margin-top: 11px; }
 .room.show { display: flex; }
+.room-host-side { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 10px; margin-top: 10px; }
+.room-host-side label { color: var(--muted); white-space: nowrap; }
+.room-host-side select { width: auto; max-width: 100%; }
 .roomcode {
   text-align: center;
   font: 24px ui-monospace, Consolas, monospace;

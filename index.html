@@ -37,7 +37,7 @@
   } catch (e) { document.documentElement.dataset.theme = "light"; }
 })();
 </script>
-<link rel="stylesheet" href="./board.css?v=room-https">
+<link rel="stylesheet" href="./board.css?v=room-label-layout">
 </head>
 <body>
 <header class="topbar">
@@ -150,11 +150,11 @@
         </div>
         <label class="check" id="bottomLabel"><input type="checkbox" id="viewBottom" checked> I always play from the bottom</label>
         <div class="room" id="roomPanel">
-          <div class="replay-rate">
-            <label for="roomHostSide">Hosting a new room as</label>
+          <div class="room-host-side">
+            <label for="roomHostSide">Host side</label>
             <select id="roomHostSide">
-              <option value="0">Red · moves first</option>
-              <option value="1">Blue · moves second</option>
+              <option value="0">Red · first</option>
+              <option value="1">Blue · second</option>
             </select>
           </div>
           <div class="btn-grid">
@@ -168,7 +168,7 @@
           <div class="roomcode" id="roomCode" style="display:none"></div>
           <button class="btn" id="btnCopyRoom" hidden>Copy invitation link</button>
           <div class="roommsg" id="roomMsg">Create a room or join with an invitation.</div>
-          <p class="note">Online rooms relay encrypted game messages. Direct rooms may reveal your IP address to your opponent. <a href="./privacy.html#rooms">Room privacy</a></p>
+          <p class="note"><a href="./privacy.html#rooms">Room&nbsp;privacy</a>: Relayed messages are encrypted. Direct rooms may reveal your IP to your opponent.</p>
         </div>
       </section>
 
