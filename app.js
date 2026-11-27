@@ -1926,10 +1926,11 @@ function setMode(next) {
 function roomRematchMessage() {
   if (mode !== "room") return "";
   if (roomRequest) {
-    const { swap, outgoing, accepted, cancelling } = roomRequest;
+    const { swap, outgoing, accepted, cancelling, crossed } = roomRequest;
     return cancelling ? "Cancelling the rematch request…"
       : outgoing ? `${swap ? "Swap rematch" : "Rematch"} requested. Waiting for your opponent.`
       : accepted ? "Rematch accepted. Starting the new game…"
+      : crossed ? `Your requests use different sides. Accept to ${swap ? "swap sides" : "keep the same sides"}.`
       : swap ? "Your opponent wants a rematch with sides swapped."
       : "Your opponent wants a rematch with the same sides.";
   }
@@ -2363,9 +2364,16 @@ function handleNet(message) {
   } else if (roomSeatSupport && state.terminal && message.round === roomRound) {
     if (message.t === "rematchOffer" && typeof message.swap === "boolean" &&
         typeof message.id === "string" && /^[\w-]{22}$/.test(message.id)) {
-      // If the offers cross, the host's wins. It still requires guest consent.
+      // The host's offer is the common ID when requests cross. Matching
+      // choices already express consent, but the guest must acknowledge
+      // that ID before the host can commit the next round.
       if (roomRequest && !(roomRole === "guest" && roomRequest.outgoing)) return;
-      roomRequest = { id: message.id, outgoing: false, swap: message.swap };
+      const previous = roomRequest;
+      roomRequest = { id: message.id, outgoing: false, swap: message.swap,
+        crossed: !!previous && previous.swap !== message.swap };
+      if (previous && !previous.cancelling && previous.swap === message.swap) {
+        roomRequest.accepted = netSend({ t: "rematchAccept", id: message.id, round: roomRound });
+      }
       roomNotice = "";
       updateRoomRequests();
     } else if (message.t === "rematchRevoked" && roomRole === "guest" &&
