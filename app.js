@@ -351,7 +351,7 @@ let cancelAlphaSearch = null;
 let peer = null, conn = null, roomCode = null, roomRole = null, roomReady = false;
 let mySide = 0;
 let roomRematchPending = false;
-let roomRequest = null, roomNotice = "", roomRound = 0, roomSeatSupport = false;
+let roomRequest = null, roomNotice = "", roomRound = 0, roomSeatSupport = false, roomRematchSupport = false;
 let resignedSide = null, resignPending = false, roomRematchId = null;
 const ROOM_SEATS_VERSION = 1;
 
@@ -2004,9 +2004,10 @@ function roomRematchClick(swap = false, revoke = false) {
     const { id, outgoing } = roomRequest;
     if (revoke) {
       if (!netSend({ t: "rematchRevoke", id, round: roomRound })) return;
-      // The host might already have accepted. Keep this offer eligible for
-      // a commit until the host confirms that cancellation took effect.
-      if (outgoing && roomRole === "guest") roomRequest.cancelling = true;
+      // Keep a withdrawn offer until its recipient acknowledges it. This
+      // prevents another crossing offer from reviving a superseded request.
+      // A guest also remains eligible for an already committed host reset.
+      if (outgoing && (roomRole === "guest" || roomRematchSupport)) roomRequest.cancelling = true;
       else roomRequest = null;
     } else if (!outgoing) {
       if (roomRole === "host") { startRoomRematch(roomRequest.swap, id); return; }
@@ -2221,6 +2222,7 @@ async function joinRoom() {
 function bindConn(channel) {
   conn = channel;
   roomSeatSupport = false;
+  roomRematchSupport = false;
   const fail = (text) => {
     if (conn !== channel) return;
     clearTimeout(roomTimer);
@@ -2230,6 +2232,7 @@ function bindConn(channel) {
     roomRequest = null;
     roomNotice = "";
     roomSeatSupport = false;
+    roomRematchSupport = false;
     resignPending = false;
     if (ui.roomResignDialog?.open) ui.roomResignDialog.close();
     channel.close();
@@ -2248,7 +2251,7 @@ function bindConn(channel) {
   const onOpen = () => {
     if (conn !== channel) return;
     if (roomRole === "guest") {
-      netSend({ t: "roomHello", seats: ROOM_SEATS_VERSION });
+      netSend({ t: "roomHello", seats: ROOM_SEATS_VERSION, rematches: 2 });
       return;
     }
     // An old guest always assumes it is Blue; don't start a Blue-host
@@ -2280,12 +2283,13 @@ function showRoomPosition() {
 }
 function syncRoom() {
   netSend({ t: "sync", moves: moves.map((move) => move.a), hostSide: mySide,
-    seats: ROOM_SEATS_VERSION, round: roomRound, resigned: resignedSide, rematch: roomRematchId });
+    seats: ROOM_SEATS_VERSION, rematches: 2, round: roomRound, resigned: resignedSide, rematch: roomRematchId });
 }
 function handleNet(message) {
   if (!message || typeof message !== "object" || mode !== "room") return;
   if (message.t === "roomHello" && roomRole === "host" && message.seats === ROOM_SEATS_VERSION) {
     roomSeatSupport = true;
+    roomRematchSupport = message.rematches === 2;
     hostReady();
     return;
   }
@@ -2331,6 +2335,7 @@ function handleNet(message) {
     resignedSide = resigned;
     if (position.terminal) resignPending = false;
     roomSeatSupport = seatProtocol;
+    roomRematchSupport = message.rematches === 2;
     mySide = 1 - hostSide;
     state = position;
     history = states;
@@ -2376,15 +2381,15 @@ function handleNet(message) {
       }
       roomNotice = "";
       updateRoomRequests();
-    } else if (message.t === "rematchRevoked" && roomRole === "guest" &&
+    } else if (message.t === "rematchRevoked" &&
         roomRequest?.cancelling && message.id === roomRequest.id) {
       roomRequest = null;
       updateRoomRequests();
     } else if (roomRequest && message.id === roomRequest.id) {
-      if (message.t === "rematchAccept" && roomRole === "host" && roomRequest.outgoing) {
+      if (message.t === "rematchAccept" && roomRole === "host" && roomRequest.outgoing && !roomRequest.cancelling) {
         startRoomRematch(roomRequest.swap, roomRequest.id);
       } else if (message.t === "rematchRevoke") {
-        if (roomRole === "host" && !roomRequest.outgoing) {
+        if (!roomRequest.outgoing) {
           netSend({ t: "rematchRevoked", id: roomRequest.id, round: roomRound });
         }
         roomNotice = roomRequest.outgoing ? "Your opponent declined the rematch." : "Your opponent cancelled the rematch request.";
@@ -2410,6 +2415,7 @@ function resetPeer() {
   roomNotice = "";
   roomRound = 0;
   roomSeatSupport = false;
+  roomRematchSupport = false;
   roomRematchId = null;
   resignedSide = null;
   resignPending = false;
