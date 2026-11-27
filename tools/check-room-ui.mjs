@@ -228,6 +228,34 @@ try {
   console.log("PASS: cancelling while offers cross preserves the choice to accept or decline");
 
   await finished();
+  await host.click("btnResultNew");
+  await host.click("btnResultSwapDecline");
+  await guest.click("btnResultNew");
+  await flush();
+  assert.equal((await host.snapshot()).action, "Request rematch");
+  assert.equal((await guest.snapshot()).action, "Request rematch");
+  assert.equal((await host.snapshot()).terminal, true);
+  assert.equal((await guest.snapshot()).terminal, true);
+  console.log("PASS: withdrawing a crossed offer cannot leave a request known only to the host");
+
+  await finished();
+  await host.click("btnResultNew");
+  await host.click("btnResultSwapDecline");
+  await guest.click("btnResultNew");
+  await deliver(guest, host);
+  assert.equal((await host.snapshot()).disabled, true);
+  await host.click("btnResultNew");
+  assert.equal((await host.snapshot()).terminal, true);
+  await deliver(host, guest);
+  await flush();
+  await guest.click("btnResultNew");
+  await deliver(guest, host);
+  await host.click("btnResultNew");
+  await flush();
+  await restarted();
+  console.log("PASS: a cancelled host offer settles before either side can request and accept a fresh rematch");
+
+  await finished();
   await guest.click("btnResultNew");
   await deliver(guest, host);
   await host.click("btnResultNew");
