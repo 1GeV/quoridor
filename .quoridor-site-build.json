@@ -8,13 +8,13 @@
     },
     {
       "path": "index.html",
-      "bytes": 19663,
-      "sha256": "0dae86f83ba42a661a100d9fe0f4732620c36a4f15fbcdf296db5257ccb1dcdf"
+      "bytes": 21299,
+      "sha256": "a559272d047167047249b0a67e2cb4caf2ff006b63ad381923d01dc5bbbbf36a"
     },
     {
       "path": "guide.html",
-      "bytes": 11021,
-      "sha256": "087203e6c10ae95aa21149b637fa884fae5fecb330f2a317ea5e3f92100b0984"
+      "bytes": 12273,
+      "sha256": "f70fc8fb859c91f32ef8f4e10088229e5ad933ab8c9566afe05693bb4edcea90"
     },
     {
       "path": "robots.txt",
